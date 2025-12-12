@@ -120,22 +120,121 @@ else:  # CSV Upload
     deals_file = st.sidebar.file_uploader("Deals CSV", type=['csv'])
     meetings_file = st.sidebar.file_uploader("Meetings CSV", type=['csv'])
     
-    # Initialize dataframes
-    companies_df = pd.read_csv(companies_file) if companies_file else pd.DataFrame()
-    contacts_df = pd.read_csv(contacts_file) if contacts_file else pd.DataFrame()
-    deals_df = pd.read_csv(deals_file) if deals_file else pd.DataFrame()
-    meetings_df = pd.read_csv(meetings_file) if meetings_file else pd.DataFrame()
+    # Initialize raw dataframes
+    companies_raw = pd.read_csv(companies_file) if companies_file else pd.DataFrame()
+    contacts_raw = pd.read_csv(contacts_file) if contacts_file else pd.DataFrame()
+    deals_raw = pd.read_csv(deals_file) if deals_file else pd.DataFrame()
+    meetings_raw = pd.read_csv(meetings_file) if meetings_file else pd.DataFrame()
     
-    # Calculate totals from uploaded data
-    companies_lw_total = len(companies_df[companies_df.get('Period', '') == 'Last Week']) if not companies_df.empty else 0
-    companies_tw_total = len(companies_df[companies_df.get('Period', '') == 'This Week']) if not companies_df.empty else 0
-    contacts_lw_total = len(contacts_df[contacts_df.get('Period', '') == 'Last Week']) if not contacts_df.empty else 0
-    contacts_tw_total = len(contacts_df[contacts_df.get('Period', '') == 'This Week']) if not contacts_df.empty else 0
-    deals_lw_count = len(deals_df[deals_df.get('Period', '') == 'Last Week']) if not deals_df.empty else 0
-    deals_tw_count = len(deals_df[deals_df.get('Period', '') == 'This Week']) if not deals_df.empty else 0
-    deals_lw_value = deals_df[deals_df.get('Period', '') == 'Last Week']['Amount'].sum() if not deals_df.empty and 'Amount' in deals_df.columns else 0
-    deals_tw_value = deals_df[deals_df.get('Period', '') == 'This Week']['Amount'].sum() if not deals_df.empty and 'Amount' in deals_df.columns else 0
-    meetings_lw_total = len(meetings_df) if not meetings_df.empty else 0
+    # Process Deals CSV (HubSpot format)
+    if not deals_raw.empty:
+        st.sidebar.markdown("#### Deals Configuration")
+        
+        # Identify the owner column
+        owner_col = None
+        for col in ['Deal owner', 'Deal Owner', 'Owner', 'HubSpot Owner']:
+            if col in deals_raw.columns:
+                owner_col = col
+                break
+        
+        if owner_col:
+            # Group by owner
+            deals_by_owner = deals_raw.groupby(owner_col).size().reset_index(name='Count')
+            
+            # Manual split input
+            st.sidebar.caption("Specify Last Week vs This Week split:")
+            lw_count_input = st.sidebar.number_input("Last Week Deal Count", min_value=0, max_value=len(deals_raw), value=0, key="deals_lw_split")
+            tw_count_input = st.sidebar.number_input("This Week Deal Count", min_value=0, max_value=len(deals_raw), value=len(deals_raw), key="deals_tw_split")
+            
+            # Deal values
+            st.sidebar.caption("Deal Values (Total):")
+            deals_lw_value = st.sidebar.number_input("Last Week Total $", min_value=0.0, value=0.0, step=1000.0, key="deals_lw_value_input")
+            deals_tw_value = st.sidebar.number_input("This Week Total $", min_value=0.0, value=0.0, step=1000.0, key="deals_tw_value_input")
+            
+            deals_lw_count = lw_count_input
+            deals_tw_count = tw_count_input
+            
+            # Create breakdown by rep
+            deals_df = deals_by_owner.rename(columns={owner_col: 'Rep'})
+            deals_df['Last Week Count'] = 0  # Would need separate exports for accurate split
+            deals_df['This Week Count'] = deals_df['Count']
+            deals_df['Last Week Value'] = 0.0
+            deals_df['This Week Value'] = 0.0
+        else:
+            deals_lw_count = 0
+            deals_tw_count = len(deals_raw)
+            deals_lw_value = 0.0
+            deals_tw_value = st.sidebar.number_input("Total Deal Value $", min_value=0.0, value=0.0, step=1000.0)
+            deals_df = pd.DataFrame()
+    else:
+        deals_lw_count = 0
+        deals_tw_count = 0
+        deals_lw_value = 0.0
+        deals_tw_value = 0.0
+        deals_df = pd.DataFrame()
+    
+    # Process other CSVs similarly
+    if not companies_raw.empty:
+        owner_col = None
+        for col in ['HubSpot Owner', 'Owner', 'Company owner']:
+            if col in companies_raw.columns:
+                owner_col = col
+                break
+        
+        if owner_col:
+            companies_by_owner = companies_raw.groupby(owner_col).size().reset_index(name='Total')
+            companies_df = companies_by_owner.rename(columns={owner_col: 'Rep'})
+            companies_df['Last Week'] = 0
+            companies_df['This Week'] = companies_df['Total']
+        else:
+            companies_df = pd.DataFrame()
+        
+        companies_lw_total = st.sidebar.number_input("Companies - Last Week", min_value=0, value=0, key="comp_lw_csv")
+        companies_tw_total = len(companies_raw) - companies_lw_total
+    else:
+        companies_df = pd.DataFrame()
+        companies_lw_total = 0
+        companies_tw_total = 0
+    
+    if not contacts_raw.empty:
+        owner_col = None
+        for col in ['HubSpot Owner', 'Owner', 'Contact owner']:
+            if col in contacts_raw.columns:
+                owner_col = col
+                break
+        
+        if owner_col:
+            contacts_by_owner = contacts_raw.groupby(owner_col).size().reset_index(name='Total')
+            contacts_df = contacts_by_owner.rename(columns={owner_col: 'Rep'})
+            contacts_df['Last Week'] = 0
+            contacts_df['This Week'] = contacts_df['Total']
+        else:
+            contacts_df = pd.DataFrame()
+        
+        contacts_lw_total = st.sidebar.number_input("Contacts - Last Week", min_value=0, value=0, key="cont_lw_csv")
+        contacts_tw_total = len(contacts_raw) - contacts_lw_total
+    else:
+        contacts_df = pd.DataFrame()
+        contacts_lw_total = 0
+        contacts_tw_total = 0
+    
+    if not meetings_raw.empty:
+        owner_col = None
+        for col in ['Meeting owner', 'Owner', 'Sales Activity Owner Name']:
+            if col in meetings_raw.columns:
+                owner_col = col
+                break
+        
+        if owner_col:
+            meetings_by_owner = meetings_raw.groupby(owner_col).size().reset_index(name='Count')
+            meetings_df = meetings_by_owner.rename(columns={owner_col: 'Rep'})
+        else:
+            meetings_df = pd.DataFrame()
+        
+        meetings_lw_total = len(meetings_raw)
+    else:
+        meetings_df = pd.DataFrame()
+        meetings_lw_total = 0
 
 # Main Dashboard Layout
 st.markdown("## 📊 Key Metrics Overview")
