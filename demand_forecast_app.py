@@ -186,14 +186,24 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
         st.info(f"Available columns: {df.columns.tolist()[:20]}...")  # Show first 20
         st.stop()
     
+    # Make a copy to avoid SettingWithCopyWarning
+    df = df.copy()
+    
     # ═══ RULE 1: Sales Rep Master ═══
     # Use Inv - Rep Master if not null, else SO - Rep Master
-    df = df.copy()
-    df['sales_rep_master'] = df['Inv - Rep Master'].fillna(df['SO - Rep Master'])
+    df['sales_rep_master'] = np.where(
+        df['Inv - Rep Master'].notna(),
+        df['Inv - Rep Master'],
+        df['SO - Rep Master']
+    )
     
     # ═══ RULE 2: Customer Corrected ═══
     # Use Inv - Correct Customer if not null, else SO - Customer Companyname
-    df['customer_corrected'] = df['Inv - Correct Customer'].fillna(df['SO - Customer Companyname'])
+    df['customer_corrected'] = np.where(
+        df['Inv - Correct Customer'].notna(),
+        df['Inv - Correct Customer'],
+        df['SO - Customer Companyname']
+    )
     
     # ═══ Date Parsing ═══
     date_cols = {
