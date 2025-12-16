@@ -1,7 +1,7 @@
 """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     CALYX CONTAINERS - S&OP COMMAND CENTER
-    The Most Beautiful Dashboard in Existence
+    Production-Grade Sales & Operations Planning System
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -12,10 +12,17 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Tuple
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
+import json
+from pathlib import Path
 import re
+
+# Stats & ML
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 🎨 CONFIGURATION
@@ -29,46 +36,22 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 🎭 LEGENDARY CSS - THE MOST BEAUTIFUL STYLING EVER CREATED
+# 🎭 LEGENDARY CSS
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
 <style>
-    /* ═══ IMPORT FONTS ═══ */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
     
-    /* ═══ ROOT VARIABLES ═══ */
-    :root {
-        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        --warning-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        --dark-gradient: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-        --glass-bg: rgba(255, 255, 255, 0.05);
-        --glass-border: rgba(255, 255, 255, 0.18);
-        --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
-        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
-        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.16);
-        --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.24);
-    }
-    
-    /* ═══ GLOBAL STYLES ═══ */
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
     
     .main {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         background-attachment: fixed;
     }
     
-    .block-container {
-        padding: 2rem 3rem 3rem 3rem;
-        max-width: 1400px;
-    }
+    .block-container { padding: 2rem 3rem 3rem 3rem; max-width: 1600px; }
     
-    /* ═══ ANIMATED GRADIENT BACKGROUND ═══ */
     @keyframes gradient {
         0% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
@@ -78,10 +61,7 @@ st.markdown("""
     .main::before {
         content: '';
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        top: 0; left: 0; right: 0; bottom: 0;
         background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #4facfe);
         background-size: 400% 400%;
         animation: gradient 15s ease infinite;
@@ -89,29 +69,9 @@ st.markdown("""
         opacity: 0.8;
     }
     
-    /* ═══ GLASSMORPHISM CARDS ═══ */
-    .glass-card {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border-radius: 24px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        padding: 2rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    
-    .glass-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-    }
-    
-    /* ═══ METRIC CARDS - ABSOLUTELY STUNNING ═══ */
     [data-testid="stMetric"] {
         background: rgba(255, 255, 255, 0.15);
         backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
         padding: 1.5rem;
         border-radius: 20px;
         border: 1px solid rgba(255, 255, 255, 0.2);
@@ -122,8 +82,6 @@ st.markdown("""
     [data-testid="stMetric"]:hover {
         transform: translateY(-8px) scale(1.02);
         box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        background: rgba(255, 255, 255, 0.2);
     }
     
     [data-testid="stMetricValue"] {
@@ -132,8 +90,6 @@ st.markdown("""
         background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        background-clip: text;
-        letter-spacing: -0.02em;
     }
     
     [data-testid="stMetricLabel"] {
@@ -142,26 +98,16 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.1em;
         color: rgba(255, 255, 255, 0.8) !important;
-        margin-bottom: 0.5rem;
     }
     
-    [data-testid="stMetricDelta"] {
-        font-size: 0.875rem !important;
-        font-weight: 600 !important;
-    }
-    
-    /* ═══ HEADERS - EPIC TYPOGRAPHY ═══ */
     h1 {
         font-size: 3.5rem !important;
         font-weight: 900 !important;
         background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        background-clip: text;
         letter-spacing: -0.03em;
         line-height: 1.1 !important;
-        margin-bottom: 0.5rem !important;
-        text-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     }
     
     h2 {
@@ -169,19 +115,14 @@ st.markdown("""
         font-weight: 700 !important;
         color: #ffffff !important;
         letter-spacing: -0.02em;
-        margin-top: 2rem !important;
-        margin-bottom: 1rem !important;
     }
     
     h3 {
         font-size: 1.5rem !important;
         font-weight: 600 !important;
         color: rgba(255, 255, 255, 0.95) !important;
-        letter-spacing: -0.01em;
-        margin-top: 1.5rem !important;
     }
     
-    /* ═══ TABS - SLEEK AND MODERN ═══ */
     .stTabs {
         background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(20px);
@@ -190,10 +131,7 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.18);
     }
     
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem;
-        background: transparent;
-    }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.5rem; }
     
     .stTabs [data-baseweb="tab"] {
         height: 3.5rem;
@@ -201,15 +139,13 @@ st.markdown("""
         border-radius: 12px;
         color: rgba(255, 255, 255, 0.7);
         font-weight: 600;
-        font-size: 0.95rem;
         border: none;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.3s;
         padding: 0 1.5rem;
     }
     
     .stTabs [data-baseweb="tab"]:hover {
         background: rgba(255, 255, 255, 0.1);
-        color: rgba(255, 255, 255, 0.9);
     }
     
     .stTabs [aria-selected="true"] {
@@ -218,18 +154,14 @@ st.markdown("""
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
     }
     
-    /* ═══ DATAFRAMES - BEAUTIFUL TABLES ═══ */
     [data-testid="stDataFrame"] {
         background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(20px);
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.18);
-        overflow: hidden;
     }
     
-    [data-testid="stDataFrame"] table {
-        color: #ffffff !important;
-    }
+    [data-testid="stDataFrame"] table { color: #ffffff !important; }
     
     [data-testid="stDataFrame"] thead tr th {
         background: rgba(255, 255, 255, 0.15) !important;
@@ -238,40 +170,13 @@ st.markdown("""
         text-transform: uppercase;
         font-size: 0.75rem;
         letter-spacing: 0.1em;
-        padding: 1rem !important;
     }
     
-    [data-testid="stDataFrame"] tbody tr:hover {
-        background: rgba(255, 255, 255, 0.08) !important;
-    }
-    
-    /* ═══ SIDEBAR - COMMAND CENTER ═══ */
     [data-testid="stSidebar"] {
         background: rgba(15, 12, 41, 0.95);
         backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-        color: rgba(255, 255, 255, 0.9);
-    }
-    
-    /* ═══ SELECTBOX & INPUTS - PREMIUM FEEL ═══ */
-    .stSelectbox, .stMultiSelect, .stTextInput, .stNumberInput {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    
-    .stSelectbox > div > div, .stTextInput > div > div > input {
-        background: transparent !important;
-        color: #ffffff !important;
-        border: none !important;
-        font-weight: 500;
-    }
-    
-    /* ═══ BUTTONS - CALL TO ACTION ═══ */
     .stButton > button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: #ffffff;
@@ -280,114 +185,20 @@ st.markdown("""
         border-radius: 12px;
         padding: 0.75rem 2rem;
         box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.3s;
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 24px rgba(102, 126, 234, 0.6);
-        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
     }
     
-    /* ═══ DOWNLOAD BUTTON ═══ */
-    .stDownloadButton > button {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        color: #ffffff;
-        font-weight: 600;
-        border: none;
-        border-radius: 12px;
-        padding: 0.75rem 2rem;
-        box-shadow: 0 4px 16px rgba(79, 172, 254, 0.4);
-    }
-    
-    .stDownloadButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(79, 172, 254, 0.6);
-    }
-    
-    /* ═══ SLIDER - SMOOTH CONTROL ═══ */
-    .stSlider {
-        padding: 1rem 0;
-    }
-    
-    /* ═══ EXPANDER - ELEGANT ACCORDION ═══ */
-    .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        color: #ffffff !important;
-        font-weight: 600;
-    }
-    
-    .streamlit-expanderHeader:hover {
-        background: rgba(255, 255, 255, 0.15);
-    }
-    
-    /* ═══ INFO/WARNING/SUCCESS BOXES ═══ */
     .stAlert {
         background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(20px);
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.2);
         color: #ffffff;
-    }
-    
-    /* ═══ LOADING SPINNER ═══ */
-    .stSpinner > div {
-        border-top-color: #ffffff !important;
-    }
-    
-    /* ═══ DIVIDER ═══ */
-    hr {
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-        margin: 2rem 0;
-    }
-    
-    /* ═══ PLOTLY CHARTS - GLASS CONTAINER ═══ */
-    .js-plotly-plot {
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(20px);
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 1rem;
-    }
-    
-    /* ═══ ANIMATIONS ═══ */
-    @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(30px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    
-    .main > div {
-        animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    
-    /* ═══ SCROLLBAR ═══ */
-    ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 10px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.3);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -415,6 +226,18 @@ class ForecastConfig:
     horizon: int = 12
     freq: str = "MS"
     winsorize: bool = True
+    
+@dataclass
+class Scenario:
+    name: str
+    growth_rate: float
+    demand_weight: float
+    sales_weight: float
+    created_at: str
+    forecast_data: dict
+
+SCENARIO_DIR = Path(".scenarios")
+SCENARIO_DIR.mkdir(exist_ok=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 🛠️ UTILITIES
@@ -440,14 +263,16 @@ def format_qty(x: float) -> str:
     return f"{x:,.0f}"
 
 ALIASES = {
-    "date": ["date", "trandate", "transactiondate", "createddate", "orderdate", "closedate"],
+    "date": ["date", "trandate", "transactiondate", "createddate", "orderdate", "closedate", "actualshipdate"],
     "sku": ["sku", "item", "itemname", "itemid", "product"],
-    "customer": ["customer", "customername", "entity", "company", "customercompanyname"],
+    "customer": ["customer", "customername", "entity", "company", "customercompanyname", "correctedcustomer"],
     "qty": ["quantity", "qty", "quantityordered", "quantityfulfilled"],
-    "amount": ["amount", "total", "totalamount", "revenue"],
+    "amount": ["amount", "total", "totalamount", "revenue", "amounttransactiontotal"],
     "category": ["category", "producttype", "calyxproducttype", "type"],
-    "sales_rep": ["salesrep", "salesperson", "rep", "owner", "repmaster"],
+    "sales_rep": ["salesrep", "salesperson", "rep", "owner", "repmaster", "masterrep"],
     "lead_time": ["leadtime", "purchaseleadtime", "avgleadtime"],
+    "so_number": ["sonumber", "documentnumber", "internalid"],
+    "status": ["status", "orderstatus", "invoicestatus"],
 }
 
 def resolve_col(df: pd.DataFrame, role: str) -> Optional[str]:
@@ -473,27 +298,22 @@ def load_data() -> Dict[str, pd.DataFrame]:
         from google.oauth2.service_account import Credentials
         import gspread
 
-        # Try multiple credential configurations
         creds_dict = None
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
         elif "service_account" in st.secrets:
             creds_dict = dict(st.secrets["service_account"])
-        elif "gsheets" in st.secrets and "service_account" in st.secrets["gsheets"]:
-            creds_dict = dict(st.secrets["gsheets"]["service_account"])
         else:
-            raise ValueError("Missing Google credentials. Add [gcp_service_account] to secrets.toml")
+            raise ValueError("Missing Google credentials")
         
-        # Try multiple sheet ID configurations
         sheet_id = None
         if "SPREADSHEET_ID" in st.secrets:
             sheet_id = st.secrets["SPREADSHEET_ID"]
         elif "gsheets" in st.secrets:
-            gsheets = st.secrets["gsheets"]
-            sheet_id = gsheets.get("spreadsheet_id") or gsheets.get("sheet_id")
+            sheet_id = st.secrets["gsheets"].get("spreadsheet_id")
         
         if not sheet_id:
-            raise ValueError("Missing spreadsheet ID. Add SPREADSHEET_ID to secrets.toml")
+            raise ValueError("Missing spreadsheet ID")
 
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
@@ -538,8 +358,7 @@ def load_data() -> Dict[str, pd.DataFrame]:
         progress.empty()
         return data
     except Exception as e:
-        st.error(f"❌ Data Loading Error: {e}")
-        st.info("💡 Check your .streamlit/secrets.toml configuration")
+        st.error(f"❌ {e}")
         st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -547,14 +366,25 @@ def load_data() -> Dict[str, pd.DataFrame]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def prepare_demand_history(data: Dict[str, pd.DataFrame], freq="MS") -> pd.DataFrame:
+    """Prepare demand history with Corrected Customer and Master Rep"""
     df = data["so_line"].copy()
     if df.empty:
-        return pd.DataFrame(columns=["ds", "sku", "customer", "qty", "category"])
+        return pd.DataFrame()
     
+    # Resolve columns - prioritize Corrected Customer and Master Rep
     c_date = resolve_col(df, "date")
     c_sku = resolve_col(df, "sku")
     c_qty = resolve_col(df, "qty")
-    c_customer = resolve_col(df, "customer")
+    c_so = resolve_col(df, "so_number")
+    
+    # Try to find Corrected Customer first, fallback to Customer
+    c_customer = None
+    for col in df.columns:
+        if "corrected" in _norm(col) and "customer" in _norm(col):
+            c_customer = col
+            break
+    if not c_customer:
+        c_customer = resolve_col(df, "customer")
     
     if not all([c_date, c_sku, c_qty]):
         return pd.DataFrame()
@@ -562,16 +392,21 @@ def prepare_demand_history(data: Dict[str, pd.DataFrame], freq="MS") -> pd.DataF
     df[c_date] = pd.to_datetime(df[c_date], errors="coerce")
     df = df.dropna(subset=[c_date])
     
-    # Convert to period-friendly frequency (MS -> M, W -> W)
     period_freq = "M" if freq == "MS" else freq
     df["ds"] = df[c_date].dt.to_period(period_freq).dt.to_timestamp()
-    
     df["sku"] = df[c_sku].astype(str).str.strip()
     df["qty"] = df[c_qty].apply(_safe_float)
     df["customer"] = df[c_customer].astype(str).str.strip() if c_customer else "Unknown"
+    df["so_number"] = df[c_so].astype(str).str.strip() if c_so else ""
     
-    out = df.groupby(["ds", "sku", "customer"], as_index=False)["qty"].sum()
+    # Aggregate
+    agg_cols = ["ds", "sku", "customer"]
+    if c_so:
+        out = df.groupby(agg_cols + ["so_number"], as_index=False)["qty"].sum()
+    else:
+        out = df.groupby(agg_cols, as_index=False)["qty"].sum()
     
+    # Add categories
     items = data["items"]
     if not items.empty:
         c_item_sku = resolve_col(items, "sku")
@@ -589,18 +424,64 @@ def prepare_demand_history(data: Dict[str, pd.DataFrame], freq="MS") -> pd.DataF
     
     return out.sort_values("ds")
 
+def prepare_invoice_history(data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Prepare invoice history for AR analysis"""
+    df = data["invoices_header"].copy()
+    if df.empty:
+        return pd.DataFrame()
+    
+    c_date = resolve_col(df, "date")
+    c_customer = None
+    for col in df.columns:
+        if "corrected" in _norm(col) and "customer" in _norm(col):
+            c_customer = col
+            break
+    if not c_customer:
+        c_customer = resolve_col(df, "customer")
+    
+    c_amount = resolve_col(df, "amount")
+    c_status = resolve_col(df, "status")
+    
+    if not all([c_date, c_customer, c_amount]):
+        return pd.DataFrame()
+    
+    df[c_date] = pd.to_datetime(df[c_date], errors="coerce")
+    df = df.dropna(subset=[c_date])
+    df["customer"] = df[c_customer].astype(str).str.strip()
+    df["amount"] = df[c_amount].apply(_safe_float)
+    df["status"] = df[c_status].astype(str).str.strip() if c_status else "Unknown"
+    
+    return df[["customer", "amount", "status", c_date]].rename(columns={c_date: "date"})
+
+def prepare_pipeline(data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Prepare HubSpot pipeline data"""
+    df = data["deals"].copy()
+    if df.empty:
+        return pd.DataFrame()
+    
+    c_date = resolve_col(df, "date")
+    c_amount = resolve_col(df, "amount")
+    c_category = resolve_col(df, "category")
+    
+    if not all([c_date, c_amount]):
+        return pd.DataFrame()
+    
+    df[c_date] = pd.to_datetime(df[c_date], errors="coerce")
+    df = df.dropna(subset=[c_date])
+    df["ds"] = df[c_date].dt.to_period("M").dt.to_timestamp()
+    df["amount"] = df[c_amount].apply(_safe_float)
+    df["category"] = df[c_category].astype(str).str.strip() if c_category else "Uncategorized"
+    
+    return df.groupby(["ds", "category"], as_index=False)["amount"].sum()
+
 # ══════════════════════════════════════════════════════════════════════════════
-# 🔮 FORECASTING ENGINE
+# 🔮 FORECASTING ENGINES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_forecast(history: pd.Series, cfg: ForecastConfig) -> pd.Series:
+def forecast_exponential_smoothing(history: pd.Series, cfg: ForecastConfig) -> pd.Series:
+    """Exponential Smoothing with seasonality detection"""
     if len(history) < 2:
-        last_val = history.iloc[-1] if len(history) > 0 else 0.0
-        future_dates = pd.date_range(
-            start=history.index[-1] if len(history) > 0 else pd.Timestamp.now(),
-            periods=cfg.horizon + 1, freq=cfg.freq
-        )[1:]
-        return pd.Series([last_val] * cfg.horizon, index=future_dates)
+        return _naive_forecast(history, cfg.horizon, cfg.freq)
     
     y = history.fillna(0).copy()
     if y.index.duplicated().any():
@@ -619,84 +500,180 @@ def run_forecast(history: pd.Series, cfg: ForecastConfig) -> pd.Series:
         fit = model.fit(optimized=True, disp=False)
         return fit.forecast(cfg.horizon).clip(lower=0)
     except:
-        future_dates = pd.date_range(start=y.index[-1], periods=cfg.horizon + 1, freq=cfg.freq)[1:]
-        return pd.Series([y.mean()] * cfg.horizon, index=future_dates)
+        return _naive_forecast(history, cfg.horizon, cfg.freq)
+
+def forecast_arima(history: pd.Series, cfg: ForecastConfig) -> pd.Series:
+    """ARIMA/SARIMA forecasting"""
+    if len(history) < 10:
+        return forecast_exponential_smoothing(history, cfg)
+    
+    y = history.fillna(0).copy()
+    if y.index.duplicated().any():
+        y = y.groupby(y.index).sum()
+    
+    try:
+        # Simple ARIMA(1,1,1) - can be made auto with pmdarima
+        model = SARIMAX(y, order=(1, 1, 1), enforce_stationarity=False, enforce_invertibility=False)
+        fit = model.fit(disp=False)
+        return fit.forecast(cfg.horizon).clip(lower=0)
+    except:
+        return forecast_exponential_smoothing(history, cfg)
+
+def forecast_ml(history: pd.Series, cfg: ForecastConfig) -> pd.Series:
+    """Machine Learning forecast with lag features"""
+    if len(history) < 12:
+        return forecast_exponential_smoothing(history, cfg)
+    
+    y = history.fillna(0).copy()
+    
+    # Create features
+    df = pd.DataFrame({"y": y})
+    for lag in [1, 2, 3, 6, 12]:
+        df[f"lag_{lag}"] = df["y"].shift(lag)
+    df["month"] = df.index.month
+    df["rolling_3"] = df["y"].rolling(3).mean()
+    df["rolling_6"] = df["y"].rolling(6).mean()
+    df = df.dropna()
+    
+    if len(df) < 6:
+        return forecast_exponential_smoothing(history, cfg)
+    
+    X = df.drop(columns=["y"])
+    Y = df["y"]
+    
+    try:
+        model = GradientBoostingRegressor(n_estimators=100, random_state=42)
+        model.fit(X, Y)
+        
+        # Recursive forecasting
+        future_preds = []
+        last_row = df.iloc[-1:].copy()
+        last_date = y.index[-1]
+        future_dates = pd.date_range(start=last_date, periods=cfg.horizon + 1, freq=cfg.freq)[1:]
+        
+        for d in future_dates:
+            new_row = last_row.copy()
+            new_row["month"] = d.month
+            # Simplified lag update
+            for lag in [1, 2, 3, 6, 12]:
+                if f"lag_{lag}" in new_row.columns:
+                    new_row[f"lag_{lag}"] = future_preds[-lag] if len(future_preds) >= lag else last_row["y"].iloc[0]
+            
+            pred = model.predict(new_row.drop(columns=["y"], errors="ignore"))[0]
+            future_preds.append(max(0, pred))
+            last_row = new_row
+            last_row["y"] = pred
+        
+        return pd.Series(future_preds, index=future_dates)
+    except:
+        return forecast_exponential_smoothing(history, cfg)
+
+def _naive_forecast(history: pd.Series, horizon: int, freq: str) -> pd.Series:
+    """Fallback naive forecast"""
+    last_val = history.iloc[-1] if len(history) > 0 else 0.0
+    future_dates = pd.date_range(
+        start=history.index[-1] if len(history) > 0 else pd.Timestamp.now(),
+        periods=horizon + 1, freq=freq
+    )[1:]
+    return pd.Series([last_val] * horizon, index=future_dates)
+
+def run_forecast(history: pd.Series, cfg: ForecastConfig) -> pd.Series:
+    """Route to appropriate forecast model"""
+    if cfg.model == "exp":
+        return forecast_exponential_smoothing(history, cfg)
+    elif cfg.model == "arima":
+        return forecast_arima(history, cfg)
+    elif cfg.model == "ml":
+        return forecast_ml(history, cfg)
+    else:
+        return forecast_exponential_smoothing(history, cfg)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 📈 LEGENDARY CHARTS
+# 📈 VISUALIZATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def create_forecast_chart(hist_df: pd.DataFrame, fc_df: pd.DataFrame, title: str):
-    """Create the most beautiful forecast chart ever"""
+def create_multi_layer_forecast_chart(
+    historical: pd.DataFrame,
+    forecast: pd.DataFrame,
+    pipeline: Optional[pd.DataFrame] = None,
+    title: str = "Demand Forecast"
+):
+    """Create comprehensive forecast chart with multiple overlays"""
     fig = go.Figure()
     
-    # Historical data - smooth line
+    # Historical demand
     fig.add_trace(go.Scatter(
-        x=hist_df['ds'],
-        y=hist_df['qty'],
+        x=historical['ds'],
+        y=historical['qty'],
         mode='lines',
-        name='Historical',
+        name='Historical Demand',
         line=dict(color='rgba(255, 255, 255, 0.8)', width=3),
         fill='tozeroy',
         fillcolor='rgba(102, 126, 234, 0.2)',
         hovertemplate='<b>%{x|%b %Y}</b><br>Qty: %{y:,.0f}<extra></extra>'
     ))
     
-    # Forecast - dashed line with glow
-    if not fc_df.empty:
+    # Forecasted demand
+    if not forecast.empty:
         fig.add_trace(go.Scatter(
-            x=fc_df['ds'],
-            y=fc_df['qty_forecast'],
+            x=forecast['ds'],
+            y=forecast['qty_forecast'],
             mode='lines+markers',
-            name='Forecast',
+            name='Demand Forecast',
             line=dict(color='#00f2fe', width=3, dash='dash'),
-            marker=dict(size=8, color='#00f2fe', line=dict(color='white', width=2)),
+            marker=dict(size=8, color='#00f2fe'),
             fill='tozeroy',
             fillcolor='rgba(79, 172, 254, 0.2)',
             hovertemplate='<b>%{x|%b %Y}</b><br>Forecast: %{y:,.0f}<extra></extra>'
         ))
     
+    # Pipeline overlay
+    if pipeline is not None and not pipeline.empty:
+        fig.add_trace(go.Scatter(
+            x=pipeline['ds'],
+            y=pipeline['pipeline_amount'],
+            mode='lines',
+            name='Pipeline Trend',
+            line=dict(color='#f5576c', width=2, dash='dot'),
+            hovertemplate='<b>%{x|%b %Y}</b><br>Pipeline: %{y:,.0f}<extra></extra>'
+        ))
+    
     fig.update_layout(
-        title=dict(
-            text=title,
-            font=dict(size=24, color='white', family='Inter'),
-            x=0.5,
-            xanchor='center'
-        ),
+        title=dict(text=title, font=dict(size=24, color='white'), x=0.5, xanchor='center'),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white', family='Inter'),
+        font=dict(color='white'),
         hovermode='x unified',
         showlegend=True,
         legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            bgcolor='rgba(255,255,255,0.1)',
-            bordercolor='rgba(255,255,255,0.2)',
-            borderwidth=1
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+            bgcolor='rgba(255,255,255,0.1)', bordercolor='rgba(255,255,255,0.2)', borderwidth=1
         ),
-        xaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(255,255,255,0.1)',
-            zeroline=False,
-            title=None
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(255,255,255,0.1)',
-            zeroline=False,
-            title='Units'
-        ),
-        height=500,
-        margin=dict(l=20, r=20, t=60, b=20)
+        xaxis=dict(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)', zeroline=False),
+        yaxis=dict(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)', zeroline=False, title='Units'),
+        height=500
     )
     
     return fig
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 💾 SCENARIO MANAGEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+def save_scenario(scenario: Scenario):
+    """Save scenario to disk"""
+    filepath = SCENARIO_DIR / f"{scenario.name.replace(' ', '_')}.json"
+    with open(filepath, 'w') as f:
+        json.dump(asdict(scenario), f)
+
+def load_scenarios() -> List[Scenario]:
+    """Load all saved scenarios"""
+    scenarios = []
+    for filepath in SCENARIO_DIR.glob("*.json"):
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+            scenarios.append(Scenario(**data))
+    return scenarios
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 🚀 MAIN APPLICATION
@@ -705,32 +682,53 @@ def create_forecast_chart(hist_df: pd.DataFrame, fc_df: pd.DataFrame, title: str
 def main():
     # ═══ SIDEBAR ═══
     with st.sidebar:
-        st.markdown("## ⚙️ Control Panel")
+        st.markdown("## ⚙️ Forecast Controls")
         st.markdown("---")
         
-        horizon = st.slider("📅 Forecast Horizon", 3, 24, 12, help="Number of months to forecast")
+        model = st.selectbox(
+            "📊 Model",
+            ["Exponential Smoothing", "ARIMA/SARIMA", "Machine Learning"],
+            help="Select forecasting algorithm"
+        )
+        model_map = {
+            "Exponential Smoothing": "exp",
+            "ARIMA/SARIMA": "arima",
+            "Machine Learning": "ml"
+        }
+        
+        horizon = st.select_slider(
+            "📅 Horizon",
+            options=[3, 6, 9, 12, 18, 24],
+            value=12,
+            help="Forecast horizon in months"
+        )
+        
         freq = st.selectbox("📊 Frequency", ["Monthly", "Weekly"], index=0)
         freq_code = "MS" if freq == "Monthly" else "W"
         
-        cfg = ForecastConfig(horizon=horizon, freq=freq_code)
+        winsorize = st.checkbox("🎯 Clip Outliers", value=True, help="Remove extreme values")
+        
+        cfg = ForecastConfig(model=model_map[model], horizon=horizon, freq=freq_code, winsorize=winsorize)
         
         st.markdown("---")
-        st.markdown("### 📡 Connection")
-        st.success("✓ Data Synced")
-        st.caption(f"Last updated: {datetime.now().strftime('%I:%M %p')}")
+        st.markdown("### 📡 Status")
+        st.success("✓ Connected")
+        st.caption(f"Updated: {datetime.now().strftime('%I:%M %p')}")
     
-    # ═══ EPIC HEADER ═══
+    # ═══ HEADER ═══
     st.markdown('<h1>🚀 S&OP COMMAND CENTER</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color: rgba(255,255,255,0.8); font-size: 1.2rem; margin-bottom: 2rem;">Real-time Sales & Operations Intelligence</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color: rgba(255,255,255,0.8); font-size: 1.2rem;">Sales & Operations Planning Intelligence</p>', unsafe_allow_html=True)
     
     # ═══ LOAD DATA ═══
     with st.spinner("🔮 Loading intelligence..."):
         data = load_data()
     
     dem = prepare_demand_history(data, freq=cfg.freq)
+    invoices = prepare_invoice_history(data)
+    pipeline = prepare_pipeline(data)
     
     if dem.empty:
-        st.error("🚫 No demand data available")
+        st.error("🚫 No demand data")
         st.stop()
     
     # Get lists
@@ -738,12 +736,26 @@ def main():
     skus = sorted(dem["sku"].dropna().unique())
     categories = sorted(dem["category"].dropna().unique())
     
-    # Sales reps
+    # Sales reps from Master Rep field
     sales_reps = []
     rep_map = {}
     if not data["customers"].empty:
-        c_cust = resolve_col(data["customers"], "customer")
-        c_rep = resolve_col(data["customers"], "sales_rep")
+        c_cust = None
+        for col in data["customers"].columns:
+            if "corrected" in _norm(col) and "customer" in _norm(col):
+                c_cust = col
+                break
+        if not c_cust:
+            c_cust = resolve_col(data["customers"], "customer")
+        
+        c_rep = None
+        for col in data["customers"].columns:
+            if "master" in _norm(col) and "rep" in _norm(col):
+                c_rep = col
+                break
+        if not c_rep:
+            c_rep = resolve_col(data["customers"], "sales_rep")
+        
         if c_cust and c_rep:
             rep_map = dict(zip(
                 data["customers"][c_cust].astype(str).str.strip(),
@@ -751,7 +763,7 @@ def main():
             ))
             sales_reps = sorted(set(rep_map.values()))
     
-    # ═══ METRICS ROW ═══
+    # ═══ METRICS ═══
     current_date = dem['ds'].max()
     l12m = dem[dem['ds'] > (current_date - pd.DateOffset(months=12))]['qty'].sum()
     prev_l12m = dem[
@@ -769,13 +781,13 @@ def main():
     st.markdown("<br>", unsafe_allow_html=True)
     
     # ═══ TABS ═══
-    tabs = st.tabs(["📊 Sales Intelligence", "🏭 Operations", "🔮 Scenarios"])
+    tabs = st.tabs(["📊 Sales Rep View", "🏭 Operations", "🔮 Scenario Planning"])
     
     # ═══════════════════════════════════════════════════════════════════════
-    # TAB 1: SALES INTELLIGENCE
+    # TAB 1: SALES REP VIEW
     # ═══════════════════════════════════════════════════════════════════════
     with tabs[0]:
-        st.markdown("## 💎 Sales Intelligence Dashboard")
+        st.markdown("## 💎 Sales Intelligence")
         
         c1, c2, c3 = st.columns(3)
         
@@ -785,30 +797,54 @@ def main():
         with c2:
             if rep != "🌐 All Reps" and rep_map:
                 rep_customers = [c for c, r in rep_map.items() if r == rep]
-                customer = st.selectbox("🏢 Customer", ["🌐 All Customers"] + rep_customers)
+                customer = st.selectbox("🏢 Customer", ["🌐 All"] + rep_customers)
             else:
-                customer = st.selectbox("🏢 Customer", ["🌐 All Customers"] + customers)
+                customer = st.selectbox("🏢 Customer", ["🌐 All"] + customers)
         
         with c3:
-            if customer not in ("🌐 All Customers",) and not dem.empty:
+            if customer != "🌐 All" and not dem.empty:
                 cust_dem = dem[dem["customer"] == customer]
                 cust_skus = sorted(cust_dem["sku"].unique())
             else:
                 cust_dem = dem
                 cust_skus = skus
             
-            sku = st.selectbox("📦 SKU", ["🌐 All SKUs"] + cust_skus, index=0)
+            sku = st.selectbox("📦 SKU", ["🌐 All"] + cust_skus, index=0)
         
         # Filter
         filtered = cust_dem.copy()
-        if sku != "🌐 All SKUs":
+        if sku != "🌐 All":
             filtered = filtered[filtered["sku"] == sku]
         
         if not filtered.empty:
+            # SKU Breakdown Table
+            st.markdown("---")
+            st.markdown("### 📊 SKU Performance Breakdown")
+            
+            sku_summary = []
+            for s, g in filtered.groupby("sku"):
+                total_qty = g["qty"].sum()
+                order_count = len(g)
+                so_numbers = g["so_number"].unique() if "so_number" in g.columns else []
+                so_list = ", ".join([so for so in so_numbers if so][:5])  # First 5 SOs
+                if len(so_numbers) > 5:
+                    so_list += f" (+{len(so_numbers)-5} more)"
+                
+                sku_summary.append({
+                    "SKU": s,
+                    "Total Qty": f"{total_qty:,.0f}",
+                    "Orders": order_count,
+                    "SO Numbers": so_list if so_list else "N/A",
+                    "Avg per Order": f"{total_qty/order_count:,.1f}" if order_count > 0 else "0"
+                })
+            
+            sku_df = pd.DataFrame(sku_summary)
+            st.dataframe(sku_df, use_container_width=True, hide_index=True)
+            
+            # Forecast Chart
             st.markdown("---")
             st.markdown("### 📈 Demand Forecast")
             
-            # Forecast
             fc_results = []
             skipped = 0
             
@@ -824,37 +860,42 @@ def main():
                 fc_results.append(fc_df)
             
             if skipped > 0:
-                st.info(f"ℹ️ {skipped} SKUs skipped (insufficient data)")
+                st.info(f"ℹ️ {skipped} SKUs skipped (need 2+ data points)")
             
             if fc_results:
                 all_fc = pd.concat(fc_results, ignore_index=True)
                 agg_fc = all_fc.groupby("ds")["qty_forecast"].sum().reset_index()
                 hist_agg = filtered.groupby("ds")["qty"].sum().reset_index()
                 
-                title = f"🎯 {customer if customer != '🌐 All Customers' else 'Company-Wide'} Forecast"
-                fig = create_forecast_chart(hist_agg, agg_fc, title)
+                title = f"🎯 {customer if customer != '🌐 All' else 'All Customers'} - Forecast"
+                fig = create_multi_layer_forecast_chart(hist_agg, agg_fc, title=title)
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Cadence
+                # Quarterly Breakdown
                 st.markdown("---")
-                st.markdown("### 🎯 SKU Ordering Patterns")
+                st.markdown("### 📅 Quarterly Recommendations")
                 
-                cadence_rows = []
-                for s, g in filtered.groupby("sku"):
-                    g2 = g.groupby("ds")["qty"].sum().reset_index()
-                    g2 = g2[g2["qty"] > 0]
-                    if len(g2) >= 2:
-                        deltas = g2["ds"].diff().dt.days.dropna()
-                        cadence_rows.append({
-                            "SKU": s,
-                            "Orders": len(g2),
-                            "Avg Days Between": f"{deltas.mean():.0f}" if not deltas.empty else "N/A",
-                            "Last Order": g2["ds"].max().strftime('%b %d, %Y')
-                        })
+                agg_fc["quarter"] = pd.to_datetime(agg_fc["ds"]).dt.to_period("Q").astype(str)
+                quarterly = agg_fc.groupby("quarter")["qty_forecast"].sum().reset_index()
+                quarterly.columns = ["Quarter", "Projected Units"]
+                quarterly["Projected Units"] = quarterly["Projected Units"].apply(lambda x: f"{x:,.0f}")
                 
-                if cadence_rows:
-                    cadence_df = pd.DataFrame(cadence_rows).sort_values("Orders", ascending=False).head(10)
-                    st.dataframe(cadence_df, use_container_width=True, hide_index=True)
+                st.dataframe(quarterly, use_container_width=True, hide_index=True)
+            
+            # Invoice Payment Behavior
+            if not invoices.empty and customer != "🌐 All":
+                st.markdown("---")
+                st.markdown("### 💳 Payment Behavior")
+                
+                cust_inv = invoices[invoices["customer"] == customer]
+                if not cust_inv.empty:
+                    paid = cust_inv[cust_inv["status"].str.contains("paid", case=False, na=False)]
+                    open_inv = cust_inv[cust_inv["status"].str.contains("open", case=False, na=False)]
+                    
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("💰 Total Invoiced", format_currency(cust_inv["amount"].sum()))
+                    col_b.metric("✅ Paid", format_currency(paid["amount"].sum()))
+                    col_c.metric("⏳ Open", format_currency(open_inv["amount"].sum()))
     
     # ═══════════════════════════════════════════════════════════════════════
     # TAB 2: OPERATIONS
@@ -862,9 +903,66 @@ def main():
     with tabs[1]:
         st.markdown("## 🏭 Operations Dashboard")
         
-        col1, col2 = st.columns(2)
+        c1, c2 = st.columns([2, 1])
         
-        with col1:
+        with c1:
+            cat_filter = st.selectbox("📂 Category", ["🌐 All"] + categories)
+        with c2:
+            if cat_filter != "🌐 All":
+                cat_skus = sorted(dem[dem["category"] == cat_filter]["sku"].unique())
+                sku_filter = st.selectbox("📦 SKU", ["🌐 All"] + cat_skus)
+            else:
+                sku_filter = st.selectbox("📦 SKU", ["🌐 All"] + skus)
+        
+        # Filter demand
+        ops_dem = dem.copy()
+        if cat_filter != "🌐 All":
+            ops_dem = ops_dem[ops_dem["category"] == cat_filter]
+        if sku_filter != "🌐 All":
+            ops_dem = ops_dem[ops_dem["sku"] == sku_filter]
+        
+        if not ops_dem.empty:
+            # Generate forecast
+            hist_ops = ops_dem.groupby("ds")["qty"].sum()
+            if len(hist_ops) >= 2:
+                fc_ops = run_forecast(hist_ops, cfg).reset_index()
+                fc_ops.columns = ["ds", "qty_forecast"]
+                hist_ops_df = hist_ops.reset_index()
+                hist_ops_df.columns = ["ds", "qty"]
+                
+                # Get pipeline for category
+                pipe_cat = None
+                if cat_filter != "🌐 All" and not pipeline.empty:
+                    pipe_cat = pipeline[pipeline["category"] == cat_filter]
+                
+                title = f"📊 {cat_filter if cat_filter != '🌐 All' else 'All Categories'} - Multi-Layer Forecast"
+                fig = create_multi_layer_forecast_chart(hist_ops_df, fc_ops, pipe_cat, title)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Gap Analysis
+                if pipe_cat is not None and not pipe_cat.empty:
+                    st.markdown("---")
+                    st.markdown("### 🎯 Forecast vs Pipeline Gap Analysis")
+                    
+                    # Merge forecast and pipeline
+                    merged = fc_ops.merge(pipe_cat, on="ds", how="outer").fillna(0)
+                    merged["gap"] = merged["qty_forecast"] - merged["pipeline_amount"]
+                    merged["coverage"] = (merged["pipeline_amount"] / merged["qty_forecast"] * 100).fillna(0)
+                    
+                    gap_summary = merged[["ds", "qty_forecast", "pipeline_amount", "gap", "coverage"]]
+                    gap_summary.columns = ["Month", "Forecast", "Pipeline", "Gap", "Coverage %"]
+                    gap_summary["Forecast"] = gap_summary["Forecast"].apply(lambda x: f"{x:,.0f}")
+                    gap_summary["Pipeline"] = gap_summary["Pipeline"].apply(lambda x: f"{x:,.0f}")
+                    gap_summary["Gap"] = gap_summary["Gap"].apply(lambda x: f"{x:+,.0f}")
+                    gap_summary["Coverage %"] = gap_summary["Coverage %"].apply(lambda x: f"{x:.1f}%")
+                    
+                    st.dataframe(gap_summary, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        col_l, col_r = st.columns(2)
+        
+        with col_l:
             st.markdown("### ⏱️ Lead Times")
             items_df = data["items"]
             if not items_df.empty:
@@ -875,72 +973,98 @@ def main():
                     lt_df = items_df.groupby(c_ven)[c_lt].mean().reset_index()
                     
                     fig = go.Figure(go.Bar(
-                        x=lt_df[c_ven],
-                        y=lt_df[c_lt],
-                        marker=dict(
-                            color=lt_df[c_lt],
-                            colorscale='Viridis',
-                            showscale=False
-                        ),
-                        text=lt_df[c_lt].round(0),
-                        textposition='outside'
+                        x=lt_df[c_ven], y=lt_df[c_lt],
+                        marker=dict(color=lt_df[c_lt], colorscale='Viridis'),
+                        text=lt_df[c_lt].round(0), textposition='outside'
                     ))
                     fig.update_layout(
-                        title="Average Lead Time by Vendor",
+                        title="Avg Lead Time by Vendor",
                         plot_bgcolor='rgba(0,0,0,0)',
                         paper_bgcolor='rgba(0,0,0,0)',
                         font=dict(color='white'),
                         yaxis_title="Days",
-                        showlegend=False,
                         height=400
                     )
                     st.plotly_chart(fig, use_container_width=True)
         
-        with col2:
+        with col_r:
             st.markdown("### 🎨 Category Mix")
             cat_mix = dem.groupby("category")["qty"].sum().reset_index()
             
             fig = go.Figure(go.Pie(
-                labels=cat_mix["category"],
-                values=cat_mix["qty"],
-                hole=0.5,
-                marker=dict(
-                    colors=['#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe'],
-                    line=dict(color='rgba(255,255,255,0.2)', width=2)
-                ),
-                textfont=dict(size=14, color='white'),
-                hovertemplate='<b>%{label}</b><br>Units: %{value:,.0f}<br>%{percent}<extra></extra>'
+                labels=cat_mix["category"], values=cat_mix["qty"], hole=0.5,
+                marker=dict(colors=['#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe']),
+                textfont=dict(size=14, color='white')
             ))
             fig.update_layout(
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='white'),
                 height=400,
-                showlegend=True,
-                legend=dict(
-                    bgcolor='rgba(255,255,255,0.1)',
-                    bordercolor='rgba(255,255,255,0.2)',
-                    borderwidth=1
-                )
+                showlegend=True
             )
             st.plotly_chart(fig, use_container_width=True)
     
     # ═══════════════════════════════════════════════════════════════════════
-    # TAB 3: SCENARIOS
+    # TAB 3: SCENARIO PLANNING
     # ═══════════════════════════════════════════════════════════════════════
     with tabs[2]:
-        st.markdown("## 🔮 Scenario Planner")
+        st.markdown("## 🔮 Scenario Planning")
         
+        # Base forecast
         base_hist = dem.groupby("ds")["qty"].sum()
         base_fc = run_forecast(base_hist, cfg).reset_index()
         base_fc.columns = ["ds", "qty"]
         
-        with st.expander("⚙️ Scenario Assumptions", expanded=True):
-            col1, col2 = st.columns(2)
-            growth = col1.slider("📈 Growth Rate (%)", -50, 50, 0) / 100
-            bump = col2.number_input("🚀 Marketing Boost (units)", 0, 10000, 0, 100)
+        col1, col2 = st.columns(2)
         
-        base_fc["scenario"] = base_fc["qty"] * (1 + growth) + bump / cfg.horizon
+        with col1:
+            st.markdown("### ⚙️ Scenario Controls")
+            
+            scenario_name = st.text_input("📝 Scenario Name", "Baseline")
+            growth = st.slider("📈 Growth Rate (%)", -50, 50, 0, 5) / 100
+            demand_weight = st.slider("🎯 Demand Forecast Weight", 0.0, 1.0, 0.7, 0.1)
+            sales_weight = 1.0 - demand_weight
+            
+            st.caption(f"Sales Forecast Weight: {sales_weight:.1f}")
+        
+        with col2:
+            st.markdown("### 💾 Scenario Management")
+            
+            if st.button("💾 Save Scenario"):
+                scenario = Scenario(
+                    name=scenario_name,
+                    growth_rate=growth,
+                    demand_weight=demand_weight,
+                    sales_weight=sales_weight,
+                    created_at=datetime.now().isoformat(),
+                    forecast_data=base_fc.to_dict()
+                )
+                save_scenario(scenario)
+                st.success(f"✅ Saved: {scenario_name}")
+            
+            saved_scenarios = load_scenarios()
+            if saved_scenarios:
+                scenario_names = [s.name for s in saved_scenarios]
+                load_scenario = st.selectbox("📂 Load Scenario", [""] + scenario_names)
+                
+                if load_scenario:
+                    loaded = next(s for s in saved_scenarios if s.name == load_scenario)
+                    st.info(f"Created: {loaded.created_at}")
+                    st.json({
+                        "Growth": f"{loaded.growth_rate*100:+.1f}%",
+                        "Demand Weight": f"{loaded.demand_weight:.1%}",
+                        "Sales Weight": f"{loaded.sales_weight:.1%}"
+                    })
+        
+        # Apply scenario
+        base_fc["adjusted"] = base_fc["qty"] * (1 + growth)
+        
+        # Blended forecast (if we had sales forecast, we'd blend here)
+        base_fc["blended"] = base_fc["adjusted"] * demand_weight
+        
+        st.markdown("---")
+        st.markdown("### 📊 Scenario Impact")
         
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -948,12 +1072,12 @@ def main():
             name="Baseline", line=dict(dash="dash", color="rgba(255,255,255,0.5)", width=2)
         ))
         fig.add_trace(go.Scatter(
-            x=base_fc["ds"], y=base_fc["scenario"],
+            x=base_fc["ds"], y=base_fc["adjusted"],
             name="Scenario", line=dict(color="#00f2fe", width=3),
             fill="tonexty", fillcolor="rgba(79, 172, 254, 0.2)"
         ))
         fig.update_layout(
-            title="📊 Scenario Impact Analysis",
+            title="Scenario Impact Analysis",
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             font=dict(color='white'),
@@ -962,9 +1086,8 @@ def main():
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        impact = base_fc["scenario"].sum() - base_fc["qty"].sum()
+        impact = base_fc["adjusted"].sum() - base_fc["qty"].sum()
         st.metric("💥 Total Impact", format_qty(impact), f"{impact/base_fc['qty'].sum()*100:+.1f}%")
-    
 
 if __name__ == "__main__":
     main()
