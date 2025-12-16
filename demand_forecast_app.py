@@ -191,15 +191,21 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     
     # ═══ RULE 1: Sales Rep Master ═══
     # Use Inv - Rep Master if not null, else SO - Rep Master
-    inv_rep = df['Inv - Rep Master'].values
-    so_rep = df['SO - Rep Master'].values
-    df['sales_rep_master'] = [inv if pd.notna(inv) else so for inv, so in zip(inv_rep, so_rep)]
+    def get_sales_rep(row):
+        if pd.notna(row['Inv - Rep Master']):
+            return row['Inv - Rep Master']
+        return row['SO - Rep Master']
+    
+    df['sales_rep_master'] = df.apply(get_sales_rep, axis=1)
     
     # ═══ RULE 2: Customer Corrected ═══
     # Use Inv - Correct Customer if not null, else SO - Customer Companyname
-    inv_cust = df['Inv - Correct Customer'].values
-    so_cust = df['SO - Customer Companyname'].values
-    df['customer_corrected'] = [inv if pd.notna(inv) else so for inv, so in zip(inv_cust, so_cust)]
+    def get_customer(row):
+        if pd.notna(row['Inv - Correct Customer']):
+            return row['Inv - Correct Customer']
+        return row['SO - Customer Companyname']
+    
+    df['customer_corrected'] = df.apply(get_customer, axis=1)
     
     # ═══ Date Parsing ═══
     date_cols = {
