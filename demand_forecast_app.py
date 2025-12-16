@@ -191,12 +191,11 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     
     # ═══ RULE 1: Sales Rep Master ═══
     # Use Inv - Rep Master if not null, else SO - Rep Master
-    # combine_first() uses the first Series, fills NaNs with second Series
-    df['sales_rep_master'] = df['Inv - Rep Master'].combine_first(df['SO - Rep Master'])
+    df['sales_rep_master'] = df['Inv - Rep Master'].fillna(df['SO - Rep Master'])
     
     # ═══ RULE 2: Customer Corrected ═══
     # Use Inv - Correct Customer if not null, else SO - Customer Companyname
-    df['customer_corrected'] = df['Inv - Correct Customer'].combine_first(df['SO - Customer Companyname'])
+    df['customer_corrected'] = df['Inv - Correct Customer'].fillna(df['SO - Customer Companyname'])
     
     # ═══ Date Parsing ═══
     date_cols = {
@@ -514,7 +513,7 @@ def main():
         st.stop()
     
     # Get unique sales reps
-    sales_reps = sorted(df['sales_rep_master'].unique())
+    sales_reps = sorted(df['sales_rep_master'].dropna().unique())
     
     # ═══ TOP METRICS ═══
     total_planned = df['so_amount'].sum()
