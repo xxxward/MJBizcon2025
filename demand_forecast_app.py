@@ -233,16 +233,11 @@ def _get_spreadsheet_id() -> str:
 def _get_service_account_info():
     for k in ("service_account", "gcp_service_account", "google_service_account"):
         if k in st.secrets:
-            try:
-                return dict(st.secrets[k])
-            except Exception:
-                pass
+            return dict(st.secrets[k])
     raise RuntimeError(
         f"Missing service account dict in Streamlit secrets. "
         f"Available keys: {list(st.secrets.keys())}"
     )
-
-
 
 def _gsheets_client():
     """
