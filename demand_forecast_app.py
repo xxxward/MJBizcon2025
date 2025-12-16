@@ -655,7 +655,19 @@ def forecast_exp(y: pd.Series, cfg: ForecastConfig) -> Tuple[pd.Series, Dict[str
         st.warning(f"Not enough data points ({len(y)}) for exponential smoothing. Need at least 2.")
         # Return naive forecast (repeat last value)
         last_val = y.iloc[-1] if len(y) > 0 else 0.0
-        fc = pd.Series([last_val] * cfg.horizon, index=pd.period_range(y.index[-1] + 1, periods=cfg.horizon, freq=cfg.freq))
+        
+        # Create proper future date range
+        if len(y) > 0:
+            last_date = y.index[-1]
+            if isinstance(last_date, pd.Period):
+                future_dates = pd.period_range(start=last_date + 1, periods=cfg.horizon, freq=cfg.freq)
+            else:
+                future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=cfg.horizon, freq=cfg.freq)
+        else:
+            # No data at all, use today as start
+            future_dates = pd.date_range(start=pd.Timestamp.now(), periods=cfg.horizon, freq=cfg.freq)
+        
+        fc = pd.Series([last_val] * cfg.horizon, index=future_dates)
         return fc, {"method": "naive", "reason": "insufficient_data"}
     
     if cfg.winsorize:
