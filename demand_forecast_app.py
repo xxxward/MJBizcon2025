@@ -145,6 +145,11 @@ def _seasonal_period(freq: str) -> Optional[int]:
 def _as_ts(y: pd.Series, freq: str) -> pd.Series:
     y = pd.to_numeric(y, errors="coerce").fillna(0.0)
     y.index = pd.to_datetime(y.index)
+    
+    # Handle duplicate dates by summing them
+    if y.index.duplicated().any():
+        y = y.groupby(y.index).sum()
+    
     return y.asfreq(freq).fillna(0.0)
 
 
@@ -457,11 +462,21 @@ def demand_history(so_line: pd.DataFrame, items: pd.DataFrame, freq: str) -> pd.
     if so_line.empty:
         return pd.DataFrame(columns=["ds", "sku", "customer", "qty", "category", "vendor", "purchase_price", "lead_time_days"])
 
+    # DEBUG: Show columns in so_line
+    st.sidebar.write("**Sales Order Line Item Columns:**", so_line.columns.tolist()[:10])
+    
     cols = require(so_line, ["date", "sku", "qty"], "Sales Order Line Item")
     if cols is None:
         return pd.DataFrame()
 
     cust = resolve_col(so_line, "customer")
+    
+    # DEBUG: Show what column was resolved as customer
+    if cust:
+        st.sidebar.info(f"🔍 Customer column resolved to: '{cust}'")
+    else:
+        st.sidebar.warning("⚠️ No customer column found in Sales Order Line Item")
+    
     df = so_line.copy()
     df[cols["date"]] = pd.to_datetime(df[cols["date"]], errors="coerce")
     df = df.dropna(subset=[cols["date"]])
