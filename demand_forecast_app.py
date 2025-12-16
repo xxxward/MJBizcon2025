@@ -1,7 +1,9 @@
 """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    CALYX - SALES REP PLANNING & FORECASTING DASHBOARD
-    Single Data Source: SO & invoice Data merged
+    CALYX - HOLISTIC SALES PLANNING & FORECASTING DASHBOARD
+    Sources: 
+    1. SO & Invoice Data (NetSuite) - Historical & Active
+    2. Deals Data (HubSpot) - Pipeline Forecast
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -10,697 +12,541 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime
-from dataclasses import dataclass
+from datetime import datetime, date
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION & STYLING
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(
-    page_title="Sales Rep Planning",
-    page_icon="📊",
+    page_title="Calyx Forecasting",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Styling
+# Custom CSS for metrics scaling and layout
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    
     * { font-family: 'Inter', sans-serif; }
+    
     .main {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        background-attachment: fixed;
+        background-color: #f8f9fa;
     }
-    .block-container { padding: 2rem 3rem; max-width: 1800px; }
-    @keyframes gradient {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-    .main::before {
-        content: '';
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #4facfe);
-        background-size: 400% 400%;
-        animation: gradient 15s ease infinite;
-        z-index: -1;
-        opacity: 0.8;
-    }
-    [data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.15);
-        backdrop-filter: blur(20px);
+    
+    /* CUSTOM METRIC CONTAINERS */
+    .metric-container {
+        background: white;
         padding: 1.5rem;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        transition: all 0.3s;
+        border-radius: 12px;
+        border: 1px solid #e9ecef;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 1rem;
+        transition: transform 0.2s;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
-    [data-testid="stMetric"]:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+    
+    .metric-container:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 12px rgba(0,0,0,0.1);
+        border-color: #ced4da;
     }
-    [data-testid="stMetricValue"] {
-        font-size: 2.5rem !important;
-        font-weight: 800 !important;
-        background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.875rem !important;
-        font-weight: 600 !important;
+    
+    .metric-label {
+        font-size: 0.85rem;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: rgba(255, 255, 255, 0.8) !important;
+        letter-spacing: 0.05em;
+        color: #6c757d;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
     }
-    h1 {
-        font-size: 3.5rem !important;
-        font-weight: 900 !important;
-        background: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        letter-spacing: -0.03em;
+    
+    .metric-value {
+        font-size: 2rem; 
+        font-weight: 800;
+        color: #212529;
+        /* Ensure text doesn't overflow */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.2;
     }
-    h2, h3 {
-        color: #ffffff !important;
-        font-weight: 700 !important;
+    
+    /* Make the value smaller if it's very long using container queries concept (approximated) */
+    @media (max-width: 1400px) { .metric-value { font-size: 1.75rem; } }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
     }
-    [data-testid="stDataFrame"] {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(20px);
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-    }
-    [data-testid="stDataFrame"] table { color: #ffffff !important; }
-    [data-testid="stDataFrame"] thead tr th {
-        background: rgba(255, 255, 255, 0.15) !important;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-    }
+
+    h1, h2, h3 { color: #1a1a1a; }
+    
     [data-testid="stSidebar"] {
-        background: rgba(15, 12, 41, 0.95);
-        backdrop-filter: blur(20px);
+        background-color: #1e293b;
     }
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p {
+        color: #e2e8f0;
+    }
+    
 </style>
 """, unsafe_allow_html=True)
 
-SHEET_NAME = "SO & invoice Data merged"
+# Sheet Names
+SHEET_SO_INV = "SO & invoice Data merged"
+SHEET_DEALS = "Deals"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA LOADING
 # ══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600)
 def load_data():
-    """Load merged SO & Invoice data from Google Sheets"""
+    """Load data from both sheets"""
     try:
         from google.oauth2.service_account import Credentials
         import gspread
 
-        # Get credentials
+        # Credentials setup
         creds_dict = None
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
         elif "service_account" in st.secrets:
             creds_dict = dict(st.secrets["service_account"])
         else:
-            raise ValueError("Missing Google credentials")
-        
-        # Get sheet ID
-        sheet_id = None
-        if "SPREADSHEET_ID" in st.secrets:
-            sheet_id = st.secrets["SPREADSHEET_ID"]
-        elif "gsheets" in st.secrets:
-            sheet_id = st.secrets["gsheets"].get("spreadsheet_id")
-        
-        if not sheet_id:
-            raise ValueError("Missing spreadsheet ID")
-
-        # Connect
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+            return None, None
+            
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
+        
+        # Open Spreadsheet
+        sheet_id = st.secrets.get("SPREADSHEET_ID") or st.secrets["gsheets"]["spreadsheet_id"]
         sh = client.open_by_key(sheet_id)
         
-        # Load merged data
-        ws = sh.worksheet(SHEET_NAME)
-        rows = ws.get_all_values()
-        
-        if len(rows) > 1:
-            headers = rows[0]
-            
-            # ═══ Deduplicate Headers ═══
-            deduped_headers = []
+        # 1. LOAD SO & INVOICE DATA
+        ws_so = sh.worksheet(SHEET_SO_INV)
+        rows_so = ws_so.get_all_values()
+        df_so = pd.DataFrame()
+        if len(rows_so) > 1:
+            headers = rows_so[0]
+            # Deduplicate headers
+            deduped = []
             seen = {}
             for h in headers:
                 h = h.strip()
                 if h in seen:
                     seen[h] += 1
-                    deduped_headers.append(f"{h}_{seen[h]}")
+                    deduped.append(f"{h}_{seen[h]}")
                 else:
                     seen[h] = 0
-                    deduped_headers.append(h)
+                    deduped.append(h)
+            df_so = pd.DataFrame(rows_so[1:], columns=deduped)
+
+        # 2. LOAD DEALS DATA (Headers on Row 2)
+        ws_deals = sh.worksheet(SHEET_DEALS)
+        rows_deals = ws_deals.get_all_values()
+        df_deals = pd.DataFrame()
+        if len(rows_deals) > 1:
+            # Row 2 is index 1
+            headers = rows_deals[1]
+            # Data starts at Row 3 (index 2)
+            data_rows = rows_deals[2:]
             
-            df = pd.DataFrame(rows[1:], columns=deduped_headers)
-            df = df.replace('', np.nan)
-            return df
-        else:
-            return pd.DataFrame()
+            # Deduplicate headers for deals too
+            deduped_deals = []
+            seen_deals = {}
+            for h in headers:
+                h = h.strip()
+                if h in seen_deals:
+                    seen_deals[h] += 1
+                    deduped_deals.append(f"{h}_{seen_deals[h]}")
+                else:
+                    seen_deals[h] = 0
+                    deduped_deals.append(h)
             
+            df_deals = pd.DataFrame(data_rows, columns=deduped_deals)
+
+        return df_so, df_deals
+
     except Exception as e:
-        st.error(f"❌ Data loading error: {e}")
-        st.stop()
+        st.error(f"Data Connection Error: {e}")
+        return pd.DataFrame(), pd.DataFrame()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA PREPARATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Prepare merged SO & Invoice data
-    """
-    
-    # Check if required columns exist
-    required_cols = ['Inv - Rep Master', 'SO - Rep Master', 'Inv - Correct Customer', 'SO - Customer Companyname']
-    df.columns = df.columns.str.strip()
-    
-    missing = [col for col in required_cols if col not in df.columns]
-    if missing:
-        st.error(f"❌ Missing required columns: {missing}")
-        st.stop()
+def prepare_so_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean and prep the NetSuite SO/Invoice Data"""
+    if df.empty: return df
     
     df = df.copy()
     
-    # ═══ Sales Rep Master ═══
-    inv_rep = df['Inv - Rep Master']
-    so_rep = df['SO - Rep Master']
-    df['sales_rep_master'] = inv_rep.combine_first(so_rep)
-    
-    # ═══ Customer Corrected ═══
+    # 1. Combine Rep & Customer
+    df['sales_rep_master'] = df['Inv - Rep Master'].combine_first(df['SO - Rep Master'])
     df['customer_corrected'] = df['Inv - Correct Customer'].combine_first(df['SO - Customer Companyname'])
     
-    # ═══ Date Parsing ═══
-    date_cols = {
-        'SO - Date Created': 'so_date_created',
-        'SO - Pending Fulfillment Date': 'so_pending_fulfillment',
-        'SO - Actual Ship Date': 'so_actual_ship',
-        'SO - Date Billed': 'so_date_billed',
-        'SO - Date Closed': 'so_date_closed',
-        'Inv - Date': 'inv_date',
-        'Inv - Date Closed': 'inv_date_closed',
-        'Inv - Due Date': 'inv_due_date'
-    }
-    
-    for orig_col, new_col in date_cols.items():
-        if orig_col in df.columns:
-            df[new_col] = pd.to_datetime(df[orig_col], errors='coerce')
-    
-    # ═══ Numeric Conversions ═══
-    numeric_cols = {
+    # 2. Numeric Cleaning
+    cols_to_num = ['so_amount', 'actual_revenue_billed', 'inv_amount']
+    # Map original names if they exist
+    mappings = {
         'SO - Amount': 'so_amount',
-        'SO - Quantity Ordered': 'so_qty_ordered',
-        'SO - Item Rate': 'so_item_rate',
         'Inv - Amount': 'inv_amount',
-        'Inv - Quantity': 'inv_quantity',
-        'Inv - Amount Remaining': 'inv_amount_remaining',
-        'Inv - Amount (Transaction Total)': 'inv_amount_total'
+        'SO - Quantity Ordered': 'so_qty',
+        'SO - Item Rate': 'item_rate'
     }
     
-    for orig_col, new_col in numeric_cols.items():
-        if orig_col in df.columns:
-            df[new_col] = pd.to_numeric(df[orig_col], errors='coerce').fillna(0)
-    
-    # ═══ String Cleaning ═══
-    string_cols = ['SO - Status', 'SO - Item', 'SO - Document Number', 
-                   'SO - Calyx || Product Type', 'SO - HubSpot Pipeline']
-    for col in string_cols:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-    
-    # ═══ FILTER: Exclude Cancelled and $0 Orders ═══
+    for old, new in mappings.items():
+        if old in df.columns:
+            df[new] = pd.to_numeric(df[old].astype(str).str.replace(r'[$,]', '', regex=True), errors='coerce').fillna(0)
+            
+    # 3. Date Parsing
+    date_cols = {
+        'SO - Date Created': 'so_date',
+        'SO - Pending Fulfillment Date': 'fulfillment_date',
+        'Inv - Date': 'inv_date'
+    }
+    for old, new in date_cols.items():
+        if old in df.columns:
+            df[new] = pd.to_datetime(df[old], errors='coerce')
+            
+    # 4. Aggregation for Invoiced Amount
+    # (Simplified aggregation logic for this view)
+    if 'actual_revenue_billed' not in df.columns:
+        # If pre-calculated column doesn't exist, roughly estimate from Inv Amount
+        df['actual_revenue_billed'] = df['inv_amount'] 
+
+    # 5. SO Status Logic
     if 'SO - Status' in df.columns:
-        df = df[df['SO - Status'] != 'Cancelled']
-    
-    if 'so_amount' in df.columns:
-        df = df[df['so_amount'] > 0]
-    
-    # ═══ Aggregate Invoice Metrics per SO Line ═══
-    agg_cols = {
-        'inv_quantity': 'sum',
-        'inv_amount': 'sum',
-        'inv_amount_remaining': 'sum'
-    }
-    
-    if 'SO - Internal ID' in df.columns and 'SO - Item' in df.columns:
-        df['so_line_id'] = df['SO - Internal ID'].astype(str) + '_' + df['SO - Item'].astype(str)
+        df['status_clean'] = df['SO - Status'].str.strip()
+    else:
+        df['status_clean'] = 'Unknown'
         
-        # Aggregate invoice data
-        inv_agg = df.groupby('so_line_id').agg(agg_cols).reset_index()
-        inv_agg.columns = ['so_line_id', 'actual_qty_billed', 'actual_revenue_billed', 'total_amount_remaining']
-        
-        # Merge back
-        df = df.merge(inv_agg, on='so_line_id', how='left')
-        
-        # Fill NaN for lines without invoices
-        df['actual_qty_billed'] = df['actual_qty_billed'].fillna(0)
-        df['actual_revenue_billed'] = df['actual_revenue_billed'].fillna(0)
-        df['total_amount_remaining'] = df['total_amount_remaining'].fillna(0)
-        
-        # ═══ DERIVED METRICS ═══
-        df['qty_remaining'] = df['so_qty_ordered'] - df['actual_qty_billed']
-        df['revenue_remaining'] = df['so_amount'] - df['actual_revenue_billed']
-        
-        # ═══ BOOLEAN FLAGS ═══
-        df['is_fully_invoiced'] = (df['actual_revenue_billed'] >= df['so_amount']) & (df['actual_revenue_billed'] > 0)
-        df['is_partially_invoiced'] = (df['actual_revenue_billed'] > 0) & (df['actual_revenue_billed'] < df['so_amount'])
-        df['is_not_invoiced'] = df['actual_revenue_billed'] == 0
-        
-        # ═══ Invoice Lag ═══
-        if 'inv_date' in df.columns and 'so_date_created' in df.columns:
-            df['invoice_lag_days'] = (df['inv_date'] - df['so_date_created']).dt.days
+    # 6. Filter Cancelled
+    df = df[df['status_clean'] != 'Cancelled']
     
     return df
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ANALYTICS FUNCTIONS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def revenue_forecast_by_rep(df: pd.DataFrame) -> pd.DataFrame:
-    """Revenue Forecast by Sales Rep & Month"""
-    df['forecast_month'] = df['so_pending_fulfillment'].dt.to_period('M').dt.to_timestamp()
+def prepare_deals_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean and prep the HubSpot Deals Data"""
+    if df.empty: return df
     
-    forecast = df.groupby(['sales_rep_master', 'forecast_month']).agg({
-        'so_amount': 'sum',
-        'actual_revenue_billed': 'sum',
-        'revenue_remaining': 'sum'
-    }).reset_index()
+    df = df.copy()
     
-    forecast.columns = ['Sales Rep', 'Month', 'Planned Revenue', 'Actual Revenue', 'Remaining Revenue']
+    # 1. Filter: Include? = TRUE
+    if 'Include?' in df.columns:
+        # Normalize to string, upper, check for TRUE
+        df = df[df['Include?'].astype(str).str.upper().isin(['TRUE', 'YES', '1'])]
     
-    return forecast.sort_values(['Sales Rep', 'Month'])
-
-def pipeline_health_by_rep(df: pd.DataFrame) -> pd.DataFrame:
-    """Pipeline Health per Sales Rep"""
-    # Create the base Health dataframe
-    health = df.groupby('sales_rep_master').agg({
-        'so_amount': 'sum',
-        'actual_revenue_billed': 'sum',
-        'revenue_remaining': 'sum',
-        'SO - Internal ID': 'count'
-    }).reset_index()
+    # 2. Construct Sales Rep Name
+    first = df['Deal Owner First Name'].astype(str).replace('None', '')
+    last = df['Deal Owner Last Name'].astype(str).replace('None', '')
+    df['sales_rep_combined'] = (first + " " + last).str.strip()
     
-    health.columns = ['Sales Rep', 'Total Planned Revenue', 'Actual Revenue', 'Remaining Revenue', 'Total SO Lines']
-    
-    # Calculate % invoiced
-    health['% Invoiced'] = (health['Actual Revenue'] / health['Total Planned Revenue'] * 100).fillna(0)
-    health['% Remaining'] = (health['Remaining Revenue'] / health['Total Planned Revenue'] * 100).fillna(0)
-    
-    # Count open SO lines (not fully invoiced)
-    open_lines_series = df[~df['is_fully_invoiced']].groupby('sales_rep_master').size()
-    open_lines = open_lines_series.reset_index(name='Open SO Lines')
-    
-    # ═══ ROBUST MERGE ═══
-    health = health.merge(
-        open_lines, 
-        left_on='Sales Rep', 
-        right_on='sales_rep_master', 
-        how='left'
-    )
-    
-    if 'sales_rep_master' in health.columns:
-        health = health.drop(columns=['sales_rep_master'])
+    # 3. Parse Dates & Filter Timeframe (Oct 2024 - Dec 2025)
+    if 'Close Date' in df.columns:
+        df['close_date_dt'] = pd.to_datetime(df['Close Date'], errors='coerce')
         
-    health['Open SO Lines'] = health['Open SO Lines'].fillna(0).astype(int)
-    
-    return health
-
-def invoice_lag_analysis(df: pd.DataFrame) -> pd.DataFrame:
-    """Average invoice lag per Sales Rep"""
-    invoiced = df[df['actual_revenue_billed'] > 0].copy()
-    
-    if invoiced.empty:
-        return pd.DataFrame()
-    
-    lag = invoiced.groupby('sales_rep_master')['invoice_lag_days'].mean().reset_index()
-    lag.columns = ['Sales Rep', 'Avg Invoice Lag (Days)']
-    lag['Avg Invoice Lag (Days)'] = lag['Avg Invoice Lag (Days)'].round(1)
-    
-    return lag.sort_values('Avg Invoice Lag (Days)', ascending=False)
-
-def invoice_status_breakdown(df: pd.DataFrame) -> pd.DataFrame:
-    """Count of SO lines by invoice status per Sales Rep"""
-    breakdown = df.groupby('sales_rep_master').agg({
-        'is_fully_invoiced': 'sum',
-        'is_partially_invoiced': 'sum',
-        'is_not_invoiced': 'sum'
-    }).reset_index()
-    
-    breakdown.columns = ['Sales Rep', 'Fully Invoiced', 'Partially Invoiced', 'Not Invoiced']
-    
-    return breakdown
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VISUALIZATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def create_revenue_forecast_chart(forecast_df: pd.DataFrame, title_suffix: str = ""):
-    """Create revenue forecast chart"""
-    if forecast_df.empty:
-        return None
+        start_date = pd.Timestamp('2024-10-01')
+        end_date = pd.Timestamp('2025-12-31')
         
-    fig = go.Figure()
+        df = df[
+            (df['close_date_dt'] >= start_date) & 
+            (df['close_date_dt'] <= end_date)
+        ]
     
-    # Group by month for the chart if multiple reps are present
-    monthly_data = forecast_df.groupby('Month').agg({
-        'Planned Revenue': 'sum',
-        'Actual Revenue': 'sum',
-        'Remaining Revenue': 'sum'
-    }).reset_index()
+    # 4. Numeric Amount
+    if 'Amount' in df.columns:
+        df['deal_amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[$,]', '', regex=True), errors='coerce').fillna(0)
     
-    fig.add_trace(go.Bar(
-        x=monthly_data['Month'],
-        y=monthly_data['Planned Revenue'],
-        name='Planned',
-        marker_color='rgba(102, 126, 234, 0.7)'
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=monthly_data['Month'],
-        y=monthly_data['Actual Revenue'],
-        name='Actual',
-        marker_color='rgba(79, 172, 254, 0.9)'
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=monthly_data['Month'],
-        y=monthly_data['Remaining Revenue'],
-        name='Remaining',
-        marker_color='rgba(245, 87, 108, 0.7)'
-    ))
-    
-    fig.update_layout(
-        title=f'Revenue Forecast {title_suffix}',
-        barmode='group',
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white'),
-        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='Revenue ($)'),
-        height=500
-    )
-    
-    return fig
+    # 5. Pipeline & Stage
+    if 'Pipeline' in df.columns:
+        df['pipeline_clean'] = df['Pipeline'].str.strip()
+        
+    return df
 
-def create_pipeline_health_chart(health_df: pd.DataFrame):
-    """Create pipeline health bar chart"""
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        x=health_df['Sales Rep'],
-        y=health_df['% Invoiced'],
-        name='% Invoiced',
-        marker_color='rgba(79, 172, 254, 0.9)',
-        text=health_df['% Invoiced'].round(1),
-        textposition='outside',
-        texttemplate='%{text}%'
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=health_df['Sales Rep'],
-        y=health_df['% Remaining'],
-        name='% Remaining',
-        marker_color='rgba(245, 87, 108, 0.7)',
-        text=health_df['% Remaining'].round(1),
-        textposition='outside',
-        texttemplate='%{text}%'
-    ))
-    
-    fig.update_layout(
-        title='Pipeline Health by Sales Rep',
-        barmode='group',
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white'),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='Percentage'),
-        height=500
-    )
-    
-    return fig
+# ══════════════════════════════════════════════════════════════════════════════
+# UNIFICATION LOGIC
+# ══════════════════════════════════════════════════════════════════════════════
 
-def create_invoice_status_chart(status_df: pd.DataFrame):
-    """Create stacked bar chart for invoice status"""
-    fig = go.Figure()
+def create_unified_forecast(df_so, df_deals):
+    """
+    Creates a single timeline dataframe combining:
+    1. Historical Invoiced (inv_date)
+    2. Active/Open SOs (fulfillment_date)
+    3. Pipeline Deals (close_date)
+    """
+    unified_rows = []
     
-    fig.add_trace(go.Bar(
-        x=status_df['Sales Rep'],
-        y=status_df['Fully Invoiced'],
-        name='Fully Invoiced',
-        marker_color='rgba(79, 172, 254, 0.9)'
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=status_df['Sales Rep'],
-        y=status_df['Partially Invoiced'],
-        name='Partially Invoiced',
-        marker_color='rgba(240, 147, 251, 0.7)'
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=status_df['Sales Rep'],
-        y=status_df['Not Invoiced'],
-        name='Not Invoiced',
-        marker_color='rgba(245, 87, 108, 0.7)'
-    ))
-    
-    fig.update_layout(
-        title='Invoice Status Breakdown',
-        barmode='stack',
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white'),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='Count of SO Lines'),
-        height=500
-    )
-    
-    return fig
+    # --- PROCESS SO DATA ---
+    for _, row in df_so.iterrows():
+        # Historical / Invoiced
+        if row['actual_revenue_billed'] > 0 and pd.notnull(row.get('inv_date')):
+            unified_rows.append({
+                'Date': row['inv_date'],
+                'Amount': row['actual_revenue_billed'],
+                'Type': 'Actual (Invoiced)',
+                'Rep': row.get('sales_rep_master'),
+                'Customer': row.get('customer_corrected'),
+                'Item': row.get('SO - Item', 'Unknown'),
+                'Status': 'Invoiced'
+            })
+            
+        # Active / Open (Remaining)
+        remaining = row['so_amount'] - row['actual_revenue_billed']
+        if remaining > 0 and pd.notnull(row.get('fulfillment_date')):
+            unified_rows.append({
+                'Date': row['fulfillment_date'],
+                'Amount': remaining,
+                'Type': 'Active Order (Backlog)',
+                'Rep': row.get('sales_rep_master'),
+                'Customer': row.get('customer_corrected'),
+                'Item': row.get('SO - Item', 'Unknown'),
+                'Status': row.get('status_clean', 'Open')
+            })
+            
+    # --- PROCESS DEALS DATA ---
+    for _, row in df_deals.iterrows():
+        if pd.notnull(row.get('close_date_dt')) and row['deal_amount'] > 0:
+            unified_rows.append({
+                'Date': row['close_date_dt'],
+                'Amount': row['deal_amount'],
+                'Type': 'Pipeline Forecast',
+                'Rep': row.get('sales_rep_combined'),
+                'Customer': None, # Deals tab doesn't have reliable customer mapping yet
+                'Item': row.get('SKU / Item', 'Unknown'),
+                'Status': row.get('Deal Stage', 'Pipeline')
+            })
+            
+    return pd.DataFrame(unified_rows)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN APP
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    # Load data
-    with st.spinner("🔮 Loading merged data..."):
-        raw_df = load_data()
     
-    if raw_df.empty:
-        st.error("🚫 No data available")
+    # 1. LOAD
+    with st.spinner("Connecting to Data Sources..."):
+        raw_so, raw_deals = load_data()
+        
+    if raw_so.empty and raw_deals.empty:
+        st.error("No data loaded. Check credentials and sheet structure.")
         st.stop()
+        
+    # 2. PREP
+    df_so = prepare_so_data(raw_so)
+    df_deals = prepare_deals_data(raw_deals)
     
-    # Prepare data
-    df = prepare_data(raw_df)
-    if df.empty:
-        st.error("🚫 No data after filtering")
+    # 3. UNIFY
+    df_unified = create_unified_forecast(df_so, df_deals)
+    
+    if df_unified.empty:
+        st.warning("Data loaded but generated no forecast rows. Check filters (dates/status).")
         st.stop()
+        
+    df_unified['Month'] = df_unified['Date'].dt.to_period('M').dt.to_timestamp()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SIDEBAR CASCADING FILTERS
+    # SIDEBAR FILTERS
     # ══════════════════════════════════════════════════════════════════════════
     
     with st.sidebar:
-        st.markdown("## ⚙️ Filters")
-        st.caption("Filters cascade top to bottom")
-        st.markdown("---")
+        st.header("🔍 Filters")
         
-        # 1. SALES REP FILTER
-        # Get all unique reps and add "All" option
-        all_reps = sorted(df['sales_rep_master'].astype(str).unique().tolist())
-        selected_rep = st.selectbox("👤 Sales Rep", ["All"] + all_reps)
+        # A. Sales Rep (Union of both sources)
+        reps_so = df_so['sales_rep_master'].dropna().unique().tolist()
+        reps_deals = df_deals['sales_rep_combined'].dropna().unique().tolist()
+        all_reps = sorted(list(set(reps_so + reps_deals)))
         
-        # Filter DF based on Rep selection
-        if selected_rep != "All":
-            df_filtered = df[df['sales_rep_master'] == selected_rep]
-        else:
-            df_filtered = df.copy()
+        sel_rep = st.selectbox("Sales Rep", ["All"] + all_reps)
+        
+        # B. Customer (SO Only primarily)
+        # Note: selecting a customer will HIDE deals data usually since deals lack customer mapping
+        customers = sorted(df_so['customer_corrected'].dropna().unique().tolist())
+        sel_cust = st.selectbox("Customer (Active/History Only)", ["All"] + customers)
+        
+        # C. Item
+        items = sorted(df_unified['Item'].dropna().astype(str).unique().tolist())
+        sel_item = st.selectbox("Item / SKU", ["All"] + items)
+        
+        # APPLY FILTERS
+        # 1. Filter Unified Data
+        filtered_unified = df_unified.copy()
+        
+        if sel_rep != "All":
+            filtered_unified = filtered_unified[filtered_unified['Rep'] == sel_rep]
+        
+        if sel_cust != "All":
+            # Keep rows where Customer matches OR Type is Pipeline (since pipeline has no customer)
+            # OR, strictly filter out pipeline if customer is selected (safer for specific account planning)
+            filtered_unified = filtered_unified[
+                (filtered_unified['Customer'] == sel_cust)
+                # Uncomment line below to keep pipeline visible even when customer is filtered (risky if unrelated)
+                # | (filtered_unified['Type'] == 'Pipeline Forecast') 
+            ]
             
-        # 2. CUSTOMER FILTER (Dependent on Rep)
-        # Get customers available in the *filtered* dataframe
-        available_customers = sorted(df_filtered['customer_corrected'].dropna().astype(str).unique().tolist())
-        selected_customer = st.selectbox("🏢 Customer", ["All"] + available_customers)
-        
-        # Filter DF based on Customer selection
-        if selected_customer != "All":
-            df_filtered = df_filtered[df_filtered['customer_corrected'] == selected_customer]
-
-        # 3. PRODUCT TYPE FILTER (Dependent on Customer)
-        # Check if column exists first
-        if 'SO - Calyx || Product Type' in df_filtered.columns:
-            available_types = sorted(df_filtered['SO - Calyx || Product Type'].dropna().astype(str).unique().tolist())
-            selected_type = st.selectbox("📦 Product Type", ["All"] + available_types)
+        if sel_item != "All":
+            filtered_unified = filtered_unified[filtered_unified['Item'] == sel_item]
             
-            if selected_type != "All":
-                df_filtered = df_filtered[df_filtered['SO - Calyx || Product Type'] == selected_type]
-
-        # 4. ITEM FILTER (Dependent on Product Type)
-        # Using selectbox allows typing to search
-        if 'SO - Item' in df_filtered.columns:
-            available_items = sorted(df_filtered['SO - Item'].dropna().astype(str).unique().tolist())
-            selected_item = st.selectbox("🔎 Item", ["All"] + available_items)
-            
-            if selected_item != "All":
-                df_filtered = df_filtered[df_filtered['SO - Item'] == selected_item]
-
-        st.markdown("---")
-        st.markdown(f"**Records Found:** {len(df_filtered)}")
-        
-        st.markdown("---")
-        st.markdown("### Data Source")
-        st.info(f"📊 {SHEET_NAME}")
-        st.success("✓ Connected")
-        st.caption(f"Updated: {datetime.now().strftime('%I:%M %p')}")
-    
     # ══════════════════════════════════════════════════════════════════════════
-    # MAIN CONTENT
+    # DASHBOARD HEADER & METRICS
     # ══════════════════════════════════════════════════════════════════════════
+    
+    st.title("📊 Calyx Holistic Forecasting")
+    st.markdown(f"**View:** {sel_rep} | **Customer:** {sel_cust}")
+    
+    # Calculate Metrics from Filtered Data
+    # 1. Actual (Invoiced)
+    metric_actual = filtered_unified[filtered_unified['Type'] == 'Actual (Invoiced)']['Amount'].sum()
+    
+    # 2. Active (Backlog)
+    metric_active = filtered_unified[filtered_unified['Type'] == 'Active Order (Backlog)']['Amount'].sum()
+    
+    # 3. Pipeline
+    metric_pipeline = filtered_unified[filtered_unified['Type'] == 'Pipeline Forecast']['Amount'].sum()
+    
+    # 4. Total Forecast (Active + Pipeline)
+    metric_forecast_total = metric_active + metric_pipeline
 
-    st.markdown('<h1>📊 Sales Rep Planning & Forecasting</h1>', unsafe_allow_html=True)
-    
-    # Dynamic subtitle based on selection
-    subtitle = "Analysis: All Reps"
-    if selected_rep != "All":
-        subtitle = f"Analysis: {selected_rep}"
-    if selected_customer != "All":
-        subtitle += f" > {selected_customer}"
-        
-    st.markdown(f'<p style="color: rgba(255,255,255,0.8); font-size: 1.2rem;">{subtitle}</p>', unsafe_allow_html=True)
-    
-    # Check if we filtered everything away
-    if df_filtered.empty:
-        st.warning("⚠️ No data matches your filter selection.")
-        st.stop()
+    # Custom HTML Metrics
+    def metric_card(label, value, color="#212529"):
+        return f"""
+        <div class="metric-container">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value" style="color: {color}">${value:,.0f}</div>
+        </div>
+        """
 
-    # ═══ TOP METRICS ═══
-    total_planned = df_filtered['so_amount'].sum()
-    total_actual = df_filtered['actual_revenue_billed'].sum()
-    total_remaining = df_filtered['revenue_remaining'].sum()
-    pct_invoiced = (total_actual / total_planned * 100) if total_planned > 0 else 0
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("💰 Planned Revenue", f"${total_planned:,.0f}")
-    col2.metric("✅ Actual Revenue", f"${total_actual:,.0f}")
-    col3.metric("⏳ Remaining", f"${total_remaining:,.0f}")
-    col4.metric("📊 % Invoiced", f"{pct_invoiced:.1f}%")
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # ═══ ANALYTICS SECTIONS ═══
-    
-    # 1. Revenue Forecast
-    st.markdown("## 📈 Revenue Forecast")
-    
-    forecast_df = revenue_forecast_by_rep(df_filtered)
-    
-    # If a single rep is selected, we show that rep's chart.
-    # If "All" reps are selected, we show the aggregate chart.
-    title_suffix = f"- {selected_rep}" if selected_rep != "All" else "- Aggregate"
-    fig_forecast = create_revenue_forecast_chart(forecast_df, title_suffix)
-    
-    if fig_forecast:
-        st.plotly_chart(fig_forecast, use_container_width=True)
-    
-    # Show table
-    if not forecast_df.empty:
-        forecast_display = forecast_df.copy()
-        forecast_display['Month'] = forecast_display['Month'].dt.strftime('%b %Y')
-        forecast_display['Planned Revenue'] = forecast_display['Planned Revenue'].apply(lambda x: f"${x:,.0f}")
-        forecast_display['Actual Revenue'] = forecast_display['Actual Revenue'].apply(lambda x: f"${x:,.0f}")
-        forecast_display['Remaining Revenue'] = forecast_display['Remaining Revenue'].apply(lambda x: f"${x:,.0f}")
-        
-        # If showing all, group by month for cleaner table
-        if selected_rep == "All":
-             st.dataframe(forecast_display[['Sales Rep', 'Month', 'Planned Revenue', 'Actual Revenue', 'Remaining Revenue']], 
-                     use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(forecast_display[['Month', 'Planned Revenue', 'Actual Revenue', 'Remaining Revenue']], 
-                     use_container_width=True, hide_index=True)
-    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.markdown(metric_card("Actual Invoiced", metric_actual, "#10b981"), unsafe_allow_html=True) # Green
+    with c2: st.markdown(metric_card("Active (Backlog)", metric_active, "#3b82f6"), unsafe_allow_html=True) # Blue
+    with c3: st.markdown(metric_card("Pipeline Forecast", metric_pipeline, "#f59e0b"), unsafe_allow_html=True) # Amber
+    with c4: st.markdown(metric_card("Total Forecast (Active+Pipe)", metric_forecast_total, "#6366f1"), unsafe_allow_html=True) # Indigo
+
     st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # VISUALIZATION ROW 1: HOLISTIC FORECAST
+    # ══════════════════════════════════════════════════════════════════════════
     
-    # 2. Pipeline Health (Only useful if multiple items/reps exist)
-    st.markdown("## 🎯 Pipeline Health")
+    st.subheader("📈 Revenue Forecast (Historical + Active + Pipeline)")
     
-    health_df = pipeline_health_by_rep(df_filtered)
-    if not health_df.empty:
-        fig_health = create_pipeline_health_chart(health_df)
-        st.plotly_chart(fig_health, use_container_width=True)
+    if not filtered_unified.empty:
+        # Group by Month and Type
+        chart_data = filtered_unified.groupby(['Month', 'Type'])['Amount'].sum().reset_index()
         
-        # Format table
-        health_display = health_df.copy()
-        health_display['Total Planned Revenue'] = health_display['Total Planned Revenue'].apply(lambda x: f"${x:,.0f}")
-        health_display['Actual Revenue'] = health_display['Actual Revenue'].apply(lambda x: f"${x:,.0f}")
-        health_display['Remaining Revenue'] = health_display['Remaining Revenue'].apply(lambda x: f"${x:,.0f}")
-        health_display['% Invoiced'] = health_display['% Invoiced'].apply(lambda x: f"{x:.1f}%")
-        health_display['% Remaining'] = health_display['% Remaining'].apply(lambda x: f"{x:.1f}%")
+        # Sort by Month
+        chart_data = chart_data.sort_values('Month')
         
-        st.dataframe(health_display, use_container_width=True, hide_index=True)
+        fig_main = px.bar(
+            chart_data,
+            x='Month',
+            y='Amount',
+            color='Type',
+            title='Unified Revenue Timeline',
+            color_discrete_map={
+                'Actual (Invoiced)': '#10b981',
+                'Active Order (Backlog)': '#3b82f6',
+                'Pipeline Forecast': '#f59e0b'
+            },
+            template='plotly_white'
+        )
+        
+        fig_main.update_layout(
+            barmode='stack',
+            height=500,
+            xaxis=dict(tickformat="%b %Y"),
+            legend=dict(orientation="h", y=1.02, yanchor="bottom")
+        )
+        
+        st.plotly_chart(fig_main, use_container_width=True)
     else:
-        st.info("No data for pipeline health.")
+        st.info("No data available for the selected filters.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # VISUALIZATION ROW 2: DRILL DOWNS
+    # ══════════════════════════════════════════════════════════════════════════
     
-    st.markdown("---")
+    col_left, col_right = st.columns(2)
     
-    # 3. Invoice Lag Analysis
-    st.markdown("## ⏱️ Invoice Lag Analysis")
-    
-    lag_df = invoice_lag_analysis(df_filtered)
-    
-    if not lag_df.empty:
-        col_a, col_b = st.columns(2)
+    # --- SALES ORDER STATUS BREAKDOWN (Left) ---
+    with col_left:
+        st.subheader("📋 Sales Order Status Breakdown")
+        # Filter for SO data only within unified set
+        so_view = filtered_unified[filtered_unified['Type'] == 'Active Order (Backlog)']
         
-        with col_a:
-            # Bar chart
-            fig_lag = go.Figure()
-            fig_lag.add_trace(go.Bar(
-                x=lag_df['Sales Rep'],
-                y=lag_df['Avg Invoice Lag (Days)'],
-                marker_color='rgba(240, 147, 251, 0.7)',
-                text=lag_df['Avg Invoice Lag (Days)'],
-                textposition='outside'
-            ))
-            fig_lag.update_layout(
-                title='Average Invoice Lag (Days)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white'),
-                xaxis=dict(showgrid=False),
-                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', title='Days'),
-                height=400
+        if not so_view.empty:
+            status_counts = so_view.groupby('Status')['Amount'].sum().reset_index()
+            fig_pie = px.pie(
+                status_counts, 
+                values='Amount', 
+                names='Status',
+                color_discrete_sequence=px.colors.sequential.Blues,
+                hole=0.4
             )
-            st.plotly_chart(fig_lag, use_container_width=True)
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.caption("No active sales orders to display.")
+
+    # --- PIPELINE DEAL STAGES (Right) ---
+    with col_right:
+        st.subheader("🎯 Pipeline by Stage")
+        pipe_view = filtered_unified[filtered_unified['Type'] == 'Pipeline Forecast']
         
-        with col_b:
-            st.dataframe(lag_df, use_container_width=True, hide_index=True, height=400)
-    else:
-        st.info("No invoiced data available for lag analysis")
+        if not pipe_view.empty:
+            stage_counts = pipe_view.groupby('Status')['Amount'].sum().reset_index().sort_values('Amount', ascending=True)
+            fig_bar = px.bar(
+                stage_counts,
+                x='Amount',
+                y='Status',
+                orientation='h',
+                color_discrete_sequence=['#f59e0b']
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.caption("No pipeline deals to display.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # DATA GRID
+    # ══════════════════════════════════════════════════════════════════════════
     
     st.markdown("---")
+    st.subheader("🔎 Detailed Data View")
     
-    # 4. Invoice Status Breakdown
-    st.markdown("## 📋 Invoice Status Breakdown")
+    tab1, tab2 = st.tabs(["Combined Forecast Data", "Raw Pipeline Deals"])
     
-    status_df = invoice_status_breakdown(df_filtered)
-    if not status_df.empty:
-        fig_status = create_invoice_status_chart(status_df)
-        st.plotly_chart(fig_status, use_container_width=True)
+    with tab1:
+        st.dataframe(
+            filtered_unified[['Date', 'Rep', 'Customer', 'Item', 'Status', 'Type', 'Amount']].sort_values('Date'),
+            use_container_width=True,
+            column_config={
+                "Date": st.column_config.DateColumn("Date", format="MMM YYYY"),
+                "Amount": st.column_config.NumberColumn("Revenue", format="$%d")
+            }
+        )
         
-        st.dataframe(status_df, use_container_width=True, hide_index=True)
+    with tab2:
+        # Show raw deals matching the Rep filter
+        # We need to re-filter df_deals directly because unified doesn't have all columns
+        if sel_rep != "All":
+            raw_deals_view = df_deals[df_deals['sales_rep_combined'] == sel_rep]
+        else:
+            raw_deals_view = df_deals
+            
+        st.dataframe(
+            raw_deals_view,
+            use_container_width=True
+        )
 
 if __name__ == "__main__":
     main()
