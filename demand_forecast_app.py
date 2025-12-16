@@ -154,7 +154,22 @@ def load_data():
         
         if len(rows) > 1:
             headers = rows[0]
-            df = pd.DataFrame(rows[1:], columns=headers)
+            
+            # ═══ FIX: Deduplicate Headers ═══
+            # If headers are ["A", "B", "A"], this makes them ["A", "B", "A_1"]
+            # This prevents df['A'] from returning a DataFrame (which breaks combine_first)
+            deduped_headers = []
+            seen = {}
+            for h in headers:
+                h = h.strip() # clean whitespace while we are at it
+                if h in seen:
+                    seen[h] += 1
+                    deduped_headers.append(f"{h}_{seen[h]}")
+                else:
+                    seen[h] = 0
+                    deduped_headers.append(h)
+            
+            df = pd.DataFrame(rows[1:], columns=deduped_headers)
             df = df.replace('', np.nan)
             return df
         else:
@@ -180,6 +195,10 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     
     # Check if required columns exist
     required_cols = ['Inv - Rep Master', 'SO - Rep Master', 'Inv - Correct Customer', 'SO - Customer Companyname']
+    
+    # Clean column names just in case
+    df.columns = df.columns.str.strip()
+    
     missing = [col for col in required_cols if col not in df.columns]
     if missing:
         st.error(f"❌ Missing required columns: {missing}")
@@ -190,12 +209,16 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     
     # ═══ RULE 1: Sales Rep Master ═══
-    # Use Inv - Rep Master if not null, else SO - Rep Master
-    df['sales_rep_master'] = df['Inv - Rep Master'].fillna(df['SO - Rep Master'])
+    # Ensure we are working with Series. If duplicates persisted, iloc[:, 0] would fix it,
+    # but the deduplication in load_data should resolve it upstream.
+    inv_rep = df['Inv - Rep Master']
+    so_rep = df['SO - Rep Master']
+    
+    # combine_first() uses the first Series, fills NaNs with second Series
+    df['sales_rep_master'] = inv_rep.combine_first(so_rep)
     
     # ═══ RULE 2: Customer Corrected ═══
-    # Use Inv - Correct Customer if not null, else SO - Customer Companyname
-    df['customer_corrected'] = df['Inv - Correct Customer'].fillna(df['SO - Customer Companyname'])
+    df['customer_corrected'] = df['Inv - Correct Customer'].combine_first(df['SO - Customer Companyname'])
     
     # ═══ Date Parsing ═══
     date_cols = {
@@ -236,8 +259,11 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype(str).str.strip()
     
     # ═══ FILTER: Exclude Cancelled and $0 Orders ═══
-    df = df[df['SO - Status'] != 'Cancelled']
-    df = df[df['so_amount'] > 0]
+    if 'SO - Status' in df.columns:
+        df = df[df['SO - Status'] != 'Cancelled']
+    
+    if 'so_amount' in df.columns:
+        df = df[df['so_amount'] > 0]
     
     # ═══ Aggregate Invoice Metrics per SO Line ═══
     # Group by SO line to get aggregated invoice data
@@ -248,31 +274,33 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
     }
     
     # Create SO line identifier
-    df['so_line_id'] = df['SO - Internal ID'].astype(str) + '_' + df['SO - Item'].astype(str)
-    
-    # Aggregate invoice data
-    inv_agg = df.groupby('so_line_id').agg(agg_cols).reset_index()
-    inv_agg.columns = ['so_line_id', 'actual_qty_billed', 'actual_revenue_billed', 'total_amount_remaining']
-    
-    # Merge back
-    df = df.merge(inv_agg, on='so_line_id', how='left')
-    
-    # Fill NaN for lines without invoices
-    df['actual_qty_billed'] = df['actual_qty_billed'].fillna(0)
-    df['actual_revenue_billed'] = df['actual_revenue_billed'].fillna(0)
-    df['total_amount_remaining'] = df['total_amount_remaining'].fillna(0)
-    
-    # ═══ DERIVED METRICS ═══
-    df['qty_remaining'] = df['so_qty_ordered'] - df['actual_qty_billed']
-    df['revenue_remaining'] = df['so_amount'] - df['actual_revenue_billed']
-    
-    # ═══ BOOLEAN FLAGS ═══
-    df['is_fully_invoiced'] = (df['actual_revenue_billed'] >= df['so_amount']) & (df['actual_revenue_billed'] > 0)
-    df['is_partially_invoiced'] = (df['actual_revenue_billed'] > 0) & (df['actual_revenue_billed'] < df['so_amount'])
-    df['is_not_invoiced'] = df['actual_revenue_billed'] == 0
-    
-    # ═══ Invoice Lag ═══
-    df['invoice_lag_days'] = (df['inv_date'] - df['so_date_created']).dt.days
+    if 'SO - Internal ID' in df.columns and 'SO - Item' in df.columns:
+        df['so_line_id'] = df['SO - Internal ID'].astype(str) + '_' + df['SO - Item'].astype(str)
+        
+        # Aggregate invoice data
+        inv_agg = df.groupby('so_line_id').agg(agg_cols).reset_index()
+        inv_agg.columns = ['so_line_id', 'actual_qty_billed', 'actual_revenue_billed', 'total_amount_remaining']
+        
+        # Merge back
+        df = df.merge(inv_agg, on='so_line_id', how='left')
+        
+        # Fill NaN for lines without invoices
+        df['actual_qty_billed'] = df['actual_qty_billed'].fillna(0)
+        df['actual_revenue_billed'] = df['actual_revenue_billed'].fillna(0)
+        df['total_amount_remaining'] = df['total_amount_remaining'].fillna(0)
+        
+        # ═══ DERIVED METRICS ═══
+        df['qty_remaining'] = df['so_qty_ordered'] - df['actual_qty_billed']
+        df['revenue_remaining'] = df['so_amount'] - df['actual_revenue_billed']
+        
+        # ═══ BOOLEAN FLAGS ═══
+        df['is_fully_invoiced'] = (df['actual_revenue_billed'] >= df['so_amount']) & (df['actual_revenue_billed'] > 0)
+        df['is_partially_invoiced'] = (df['actual_revenue_billed'] > 0) & (df['actual_revenue_billed'] < df['so_amount'])
+        df['is_not_invoiced'] = df['actual_revenue_billed'] == 0
+        
+        # ═══ Invoice Lag ═══
+        if 'inv_date' in df.columns and 'so_date_created' in df.columns:
+            df['invoice_lag_days'] = (df['inv_date'] - df['so_date_created']).dt.days
     
     return df
 
@@ -513,7 +541,7 @@ def main():
         st.stop()
     
     # Get unique sales reps
-    sales_reps = sorted(df['sales_rep_master'].dropna().unique())
+    sales_reps = sorted(df['sales_rep_master'].unique())
     
     # ═══ TOP METRICS ═══
     total_planned = df['so_amount'].sum()
